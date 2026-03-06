@@ -52,7 +52,8 @@
               The active VM (last started) is used by the Submit and Projects pages.
             </span></span>
           </h3>
-          <div class="btn-row">
+          <div class="btn-row" style="align-items:center;gap:.5rem">
+            <span id="vm-loading-indicator" style="display:none;font-size:.78rem;color:var(--text-dim)"><span class="spinner"></span></span>
             <button class="btn secondary" onclick="vmLoad()">↻ Refresh</button>
             <button id="vm-new-btn" class="btn" onclick="vmShowCreate()">+ New VM</button>
           </div>
@@ -87,7 +88,7 @@
       <!-- Command log panel -->
       <div id="dashboard-log" class="card" style="display:none; margin-top:1rem">
         <div style="display:flex;align-items:center;justify-content:space-between">
-          <h3 style="margin:0">Command Log</h3>
+          <h3 style="margin:0">Log <span id="log-source-label" style="font-size:.78rem;color:var(--text-dim);font-weight:400;margin-left:.3rem"></span><span id="log-live-indicator" style="display:none;font-size:.72rem;color:var(--ok);font-weight:400;margin-left:.4rem">● live</span></h3>
           <button class="btn secondary" style="font-size:.7rem;padding:.15rem .5rem" onclick="dashboardCloseLog()">✕ Close</button>
         </div>
         <pre id="dashboard-log-content" style="margin-top:.5rem;max-height:20rem;overflow:auto;font-size:.78rem;white-space:pre-wrap;background:var(--bg);padding:.5rem .75rem;border-radius:var(--radius);border:1px solid var(--border)"></pre>

@@ -500,8 +500,19 @@ def _next_soap_port() -> int:
 
 
 def _vm_qemu_running(vm_path: str) -> bool:
-    ps = _run(["pgrep", "-af", f"qemu.*{vm_path}"], timeout=10)
-    return ps["returncode"] == 0
+    """Return True if a qemu-system process has its cwd inside vm_path."""
+    target = str(pathlib.Path(vm_path).resolve())
+    for pid_dir in pathlib.Path("/proc").glob("[0-9]*"):
+        try:
+            exe = (pid_dir / "exe").resolve().name
+            if "qemu" not in exe:
+                continue
+            cwd = os.readlink(str(pid_dir / "cwd"))
+            if cwd == target:
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def _vm_soap_reachable(soap_port: int) -> bool:
@@ -526,14 +537,40 @@ class CreateVMRequest(BaseModel):
     skip_build_sources: bool = True
 
 
+def _vm_state(vm_path: pathlib.Path, qemu_running: bool, soap_reachable: bool) -> str:
+    """Derive a single state string for the VM.
+
+    States:
+      not_created   — only .vm_config.json exists, never started create
+      creating      — QEMU running installer (no initvm.img yet)
+      create_failed — QEMU stopped but no initvm.img (create was interrupted)
+      stopped       — initvm.img present, QEMU not running
+      starting      — initvm.img present, QEMU running, SOAP not yet up
+      running       — initvm.img present, QEMU running, SOAP reachable
+    """
+    has_final = (vm_path / "initvm.img").exists()
+    has_artifacts = any(
+        p.name not in (".vm_config.json",) for p in vm_path.iterdir()
+    )
+    if qemu_running:
+        if soap_reachable:
+            return "running"
+        return "creating" if not has_final else "starting"
+    if has_final:
+        return "stopped"
+    return "create_failed" if has_artifacts else "not_created"
+
+
 @app.get("/api/initvms")
 def list_initvms():
     vms = _list_vms_raw()
     result = []
     for vm in vms:
+        vm_path = pathlib.Path(vm["path"])
         running = _vm_qemu_running(vm["path"])
         soap_ok = _vm_soap_reachable(vm["soap_port"]) if running else False
-        result.append({**vm, "qemu_running": running, "soap_reachable": soap_ok})
+        state = _vm_state(vm_path, running, soap_ok)
+        result.append({**vm, "qemu_running": running, "soap_reachable": soap_ok, "state": state})
     return {"vms": result, "max_vms": int(S("max_vms") or 1)}
 
 
@@ -571,6 +608,11 @@ def start_initvm_vm(name: str):
     vm_path = _vm_dir(name)
     if not vm_path.is_dir():
         raise HTTPException(404, detail=f"VM '{name}' not found.")
+    if not (vm_path / "initvm.img").exists():
+        raise HTTPException(
+            409,
+            detail=f"VM '{name}' has not been fully created yet (initvm.img missing). Use '↺ Create' to create it first.",
+        )
     cfg = _read_vm_config(vm_path)
     soap_port = cfg.get("soap_port", SOAP_PORT_BASE)
     log_dir = pathlib.Path(S("vms_base_dir")).parent / "logs"
@@ -676,6 +718,57 @@ def initvm_vm_log(name: str, tail: int = 200):
     if tail:
         lines = lines[-tail:]
     return {"log": "\n".join(lines), "found": True}
+
+
+@app.post("/api/initvms/{name}/retry-create")
+def retry_create_initvm_vm(name: str):
+    """Remove partial create artifacts and re-run elbe initvm create."""
+    vm_path = _vm_dir(name)
+    if not vm_path.is_dir():
+        raise HTTPException(404, detail=f"VM '{name}' not found.")
+    if _vm_qemu_running(str(vm_path)):
+        raise HTTPException(409, detail=f"VM '{name}' is running. Stop it first.")
+    cfg = _read_vm_config(vm_path)
+    soap_port = cfg.get("soap_port", SOAP_PORT_BASE)
+    log_dir = pathlib.Path(S("vms_base_dir")).parent / "logs"
+    log_file = log_dir / f"{name}.log"
+
+    # Remove partial artifacts, keep .vm_config.json
+    for item in vm_path.iterdir():
+        if item.name == VM_CONFIG_FILE:
+            continue
+        if item.is_dir():
+            shutil.rmtree(item)
+        else:
+            item.unlink()
+
+    def _do_create():
+        result = _elbe(
+            "initvm", "create", "--qemu",
+            "--directory", str(vm_path),
+            "--port", str(soap_port),
+            "--skip-build-sources",
+            timeout=2400,
+        )
+        try:
+            with open(log_file, "w") as f:
+                f.write(f"$ {result['command']}\n")
+                if result["stdout"]:
+                    f.write(result["stdout"] + "\n")
+                if result["stderr"]:
+                    f.write(result["stderr"] + "\n")
+                f.write(f"\n→ exit code: {result['returncode']}\n")
+        except Exception:
+            pass
+        if result["returncode"] == 0:
+            _elbe("initvm", "start", "--qemu",
+                  "--directory", str(vm_path),
+                  "--port", str(soap_port),
+                  timeout=300)
+            _set_active_vm(str(vm_path), soap_port)
+
+    threading.Thread(target=_do_create, daemon=True).start()
+    return {"retrying": True, "name": name, "soap_port": soap_port}
 
 
 @app.delete("/api/initvms/{name}")
