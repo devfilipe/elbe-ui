@@ -163,6 +163,71 @@ if spa_dir.is_dir():
 
 # Serve local APT repo directories as static files under /repo/<index>/
 # The repos are mounted lazily at startup from settings.
+def _init_repo_index(repo_dir: pathlib.Path):
+    """Create minimal unsigned APT index files so the repo is accessible immediately.
+
+    The Release file must contain 'Packages' and 'Sources' checksum lines —
+    ELBE's validate_repo() reads InRelease/Release and searches for those
+    strings to confirm the repository is valid.
+    """
+    if (repo_dir / "Release").exists():
+        return
+    import gzip as _gzip, hashlib as _hashlib
+    repo_dir.mkdir(parents=True, exist_ok=True)
+
+    def _write_and_checksum(path: pathlib.Path, data: bytes):
+        path.write_bytes(data)
+        md5 = _hashlib.md5(data).hexdigest()
+        sha256 = _hashlib.sha256(data).hexdigest()
+        return md5, sha256, len(data)
+
+    # Packages and Sources (possibly non-empty if .deb already present)
+    pkg_path = repo_dir / "Packages"
+    if not pkg_path.exists():
+        pkg_path.write_bytes(b"")
+    pkg_data = pkg_path.read_bytes()
+    pkg_md5, pkg_sha256, pkg_size = _write_and_checksum(pkg_path, pkg_data)
+
+    import subprocess as _sp
+    gz_result = _sp.run(["gzip", "-9c"], input=pkg_data, capture_output=True)
+    pkg_gz_data = gz_result.stdout if gz_result.returncode == 0 else b""
+    pgz_md5, pgz_sha256, pgz_size = _write_and_checksum(repo_dir / "Packages.gz", pkg_gz_data)
+
+    src_path = repo_dir / "Sources"
+    if not src_path.exists():
+        src_path.write_bytes(b"")
+    src_data = src_path.read_bytes()
+    src_md5, src_sha256, src_size = _write_and_checksum(src_path, src_data)
+
+    gz_result = _sp.run(["gzip", "-9c"], input=src_data, capture_output=True)
+    src_gz_data = gz_result.stdout if gz_result.returncode == 0 else b""
+    sgz_md5, sgz_sha256, sgz_size = _write_and_checksum(repo_dir / "Sources.gz", src_gz_data)
+
+    release_text = (
+        "Origin: elbe-demo-local\n"
+        "Label: ELBE Demo Local Repository\n"
+        "Suite: stable\n"
+        "Codename: local\n"
+        "Architectures: amd64 arm64 armhf all\n"
+        "Components: .\n"
+        "Description: Local APT repository for ELBE demo project\n"
+        "MD5Sum:\n"
+        f" {pkg_md5} {pkg_size} Packages\n"
+        f" {pgz_md5} {pgz_size} Packages.gz\n"
+        f" {src_md5} {src_size} Sources\n"
+        f" {sgz_md5} {sgz_size} Sources.gz\n"
+        "SHA256:\n"
+        f" {pkg_sha256} {pkg_size} Packages\n"
+        f" {pgz_sha256} {pgz_size} Packages.gz\n"
+        f" {src_sha256} {src_size} Sources\n"
+        f" {sgz_sha256} {sgz_size} Sources.gz\n"
+    )
+    (repo_dir / "Release").write_text(release_text)
+    # Do NOT create InRelease without a GPG signature — apt would fail parsing
+    # the empty/unsigned clearsigned document even with [trusted=yes].
+    # apt falls back: InRelease(404) → Release.gpg(404) → Release(unsigned) → ok with [trusted=yes]
+
+
 def _mount_repo_dirs():
     """Mount each local APT repo's repo/ directory as a static file route."""
     settings = _load_settings()
@@ -173,6 +238,7 @@ def _mount_repo_dirs():
             continue
         repo_dir = pathlib.Path(ld) / "repo"
         if repo_dir.is_dir():
+            _init_repo_index(repo_dir)
             route = f"/repo/{i}"
             try:
                 app.mount(route, StaticFiles(directory=str(repo_dir)), name=f"apt-repo-{i}")
@@ -320,10 +386,11 @@ def maintainer_gen_keys(index: int):
     gnupg = _maintainer_gnupg_dir(index)
     gnupg.mkdir(parents=True, exist_ok=True)
     os.chmod(str(gnupg), 0o700)
+    comment_line = f"Name-Comment: {m['organization']}\n" if m.get("organization") else ""
     batch_input = f"""Key-Type: RSA
 Key-Length: 4096
 Name-Real: {m['name']}
-Name-Email: {m['email']}
+{comment_line}Name-Email: {m['email']}
 Expire-Date: 0
 %no-protection
 %commit
@@ -1455,6 +1522,7 @@ class AptRepoEntry(BaseModel):
     trusted: bool = False
     enabled: bool = True
     local_dir: str = ""
+    pool_layout: bool = True
     maintainer_index: Optional[int] = None
 
 
@@ -1557,21 +1625,26 @@ def apt_repos_elbe_xml(index: int):
 
 @app.post("/api/apt-repos/{index}/rebuild")
 def apt_repos_rebuild(index: int):
-    """Copy maintainer keys to repo then run build-repo.sh."""
+    """Copy maintainer GPG keys (if configured) then run build-repo.sh.
+
+    When no maintainer/keys are configured the index is still generated
+    unsigned — this works for repos marked trusted=yes in the ELBE XML.
+    """
     r = _get_repo(index)
     ld = _repo_local_dir(r)
     if not ld:
         raise HTTPException(status_code=400, detail="Repository has no local directory")
     mi = r.get("maintainer_index")
-    if mi is None:
-        raise HTTPException(status_code=400, detail="No maintainer assigned to this repository")
-    copy_result = _copy_maintainer_keys_to_repo(mi, ld)
-    if not copy_result.get("copied"):
-        raise HTTPException(status_code=400, detail=copy_result.get("error", "Failed to copy keys"))
+    signed = False
+    if mi is not None:
+        copy_result = _copy_maintainer_keys_to_repo(mi, ld)
+        signed = copy_result.get("copied", False)
     script = ld / "build-repo.sh"
     if not script.is_file():
         raise HTTPException(status_code=404, detail="build-repo.sh not found")
-    return _run(["bash", str(script)], timeout=120)
+    result = _run(["bash", str(script)], timeout=120)
+    result["signed"] = signed
+    return result
 
 
 @app.post("/api/apt-repos/{index}/upload")
@@ -2112,7 +2185,17 @@ def add_deb_to_repo(req: AddToRepoRequest):
         raise HTTPException(status_code=400, detail="Target repo has no local directory")
     repo_dir = ld / "repo"
     repo_dir.mkdir(parents=True, exist_ok=True)
-    dest = repo_dir / deb.name
+
+    # Derive package name from .deb filename: <name>_<version>_<arch>.deb
+    parts = deb.stem.rsplit("_", 2)
+    pkg_name = parts[0] if parts else deb.stem
+    use_pool = r.get("pool_layout", True)
+    if use_pool:
+        dest_dir = repo_dir / "pool" / "main" / pkg_name[0].lower() / pkg_name
+    else:
+        dest_dir = repo_dir
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / deb.name
     shutil.copy2(str(deb), str(dest))
 
     copied_files = [str(dest)]
@@ -2121,15 +2204,11 @@ def add_deb_to_repo(req: AddToRepoRequest):
     source_copied = []
     if req.include_sources:
         parent = deb.parent
-        # Derive package name from .deb filename: <name>_<version>_<arch>.deb
-        parts = deb.stem.rsplit("_", 2)
         if len(parts) >= 2:
-            pkg_base = parts[0]  # e.g. "elbe-demo-pkg-hello"
-            ver_part = parts[1]   # e.g. "1.0.0-1"
-            # Look for matching .dsc and .tar.* in the same directory
-            for pattern in [f"{pkg_base}_{ver_part}.dsc", f"{pkg_base}_{ver_part}.tar.*"]:
+            ver_part = parts[1]
+            for pattern in [f"{pkg_name}_{ver_part}.dsc", f"{pkg_name}_{ver_part}.tar.*"]:
                 for src_file in parent.glob(pattern):
-                    src_dest = repo_dir / src_file.name
+                    src_dest = dest_dir / src_file.name
                     shutil.copy2(str(src_file), str(src_dest))
                     source_copied.append(src_file.name)
                     copied_files.append(str(src_dest))
@@ -2414,10 +2493,17 @@ def generate_sbom(req: SbomRequest):
     )
 
     if result["returncode"] != 0:
-        return {
-            "generated": False,
-            "error": (result["stderr"] or result["stdout"] or "elbe cyclonedx-sbom failed").strip(),
-        }
+        raw_err = (result["stderr"] or result["stdout"] or "").strip()
+        if "pool layout" in raw_err:
+            msg = (
+                "SBOM generation is not supported for builds that include packages "
+                "from flat-layout local repositories (e.g. suite './'). "
+                "elbe cyclonedx-sbom requires all packages to originate from "
+                "pool-layout repos (standard Debian mirrors)."
+            )
+        else:
+            msg = raw_err or "elbe cyclonedx-sbom failed"
+        return {"generated": False, "error": msg}
 
     # Parse component count from the generated JSON
     component_count = None

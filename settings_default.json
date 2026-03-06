@@ -20,7 +20,7 @@
   "package_maintainers": {},
   "apt_repos": [
     {
-      "label": "ELBE Demo Local",
+      "label": "ELBE Demo Local (pool)",
       "type": "deb",
       "uri": "http://10.0.2.2:8080/repo/0",
       "suite": "./",
@@ -29,7 +29,21 @@
       "signed_by": "",
       "trusted": true,
       "enabled": true,
-      "local_dir": "/workspace/tools/elbe-demo-apt-repository"
+      "local_dir": "/workspace/tools/elbe-demo-apt-repository",
+      "pool_layout": true
+    },
+    {
+      "label": "ELBE Demo Local (flat)",
+      "type": "deb",
+      "uri": "http://10.0.2.2:8080/repo/1",
+      "suite": "./",
+      "components": "",
+      "arch": "",
+      "signed_by": "",
+      "trusted": true,
+      "enabled": true,
+      "local_dir": "/workspace/tools/elbe-demo-apt-repository-flat",
+      "pool_layout": false
     }
   ]
 }

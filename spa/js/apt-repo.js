@@ -29,17 +29,23 @@ async function loadAptRepos() {
     let status = '';
     if (isLocal) {
       status += r.exists
-        ? '<span class="badge ok">OK</span> '
-        : '<span class="badge err">Missing</span> ';
-      if (r.has_keys) status += '<span class="badge ok">GPG</span> ';
-      if (r.has_index) status += '<span class="badge ok">Index</span> ';
-      status += `<span style="font-size:.72rem;color:var(--text-dim)">${r.package_count || 0} bin`;
+        ? '<span class="badge ok" title="Repository directory exists and is accessible">Dir OK</span> '
+        : '<span class="badge err" title="Repository local_dir not found on disk">Dir Missing</span> ';
+      status += r.has_keys
+        ? '<span class="badge ok" title="GPG private key is present — repository can be signed">GPG OK</span> '
+        : '<span class="badge warn" title="No GPG private key. Assign a maintainer and Rebuild Index to sign the repo.">GPG —</span> ';
+      status += r.has_index
+        ? '<span class="badge ok" title="Packages index exists — apt can install from this repo">Index OK</span> '
+        : '<span class="badge err" title="No Packages index. Click Rebuild Index to generate it.">No Index</span> ';
+      if (r.pool_layout !== false)
+        status += '<span class="badge ok" title="Pool layout: packages stored in pool/main/<x>/<pkg>/. Required for SBOM generation.">Pool</span> ';
+      status += `<span style="font-size:.72rem;color:var(--text-dim)" title="${r.package_count || 0} binary package(s), ${r.source_count || 0} source package(s)">${r.package_count || 0} bin`;
       if (r.source_count) status += `, ${r.source_count} src`;
       status += '</span>';
     } else {
       status += enabled
-        ? '<span class="badge ok">Remote</span>'
-        : '<span class="badge warn">Disabled</span>';
+        ? '<span class="badge ok" title="Remote repository — accessed directly by apt, no local management">Remote</span>'
+        : '<span class="badge warn" title="Repository is disabled and will not be used in builds">Disabled</span>';
     }
 
     html += `<tr style="${labelStyle}">
@@ -104,6 +110,7 @@ function aptRepoEdit(index) {
     document.getElementById('apt-repo-local-dir').value = r.local_dir || '';
     document.getElementById('apt-repo-trusted').checked = !!r.trusted;
     document.getElementById('apt-repo-enabled').checked = r.enabled !== false;
+    document.getElementById('apt-repo-pool-layout').checked = r.pool_layout !== false;
     await _aptLoadMaintainerSelect(r.maintainer_index ?? null);
     document.getElementById('apt-repo-form').style.display = 'block';
   });
@@ -118,6 +125,7 @@ function _aptFormClear() {
   document.getElementById('apt-repo-suite').value = './';
   document.getElementById('apt-repo-trusted').checked = false;
   document.getElementById('apt-repo-enabled').checked = true;
+  document.getElementById('apt-repo-pool-layout').checked = true;
   const sel = document.getElementById('apt-repo-maintainer-index');
   if (sel) sel.value = '';
 }
@@ -135,6 +143,7 @@ function _aptFormData() {
     trusted:          document.getElementById('apt-repo-trusted').checked,
     enabled:          document.getElementById('apt-repo-enabled').checked,
     local_dir:        document.getElementById('apt-repo-local-dir').value,
+    pool_layout:      document.getElementById('apt-repo-pool-layout').checked,
   };
   if (miRaw !== '') body.maintainer_index = parseInt(miRaw, 10);
   return body;
@@ -201,23 +210,32 @@ async function aptRepoShowDetail(index) {
   // Status
   let statusHtml = '<div style="margin-bottom:.5rem">';
   statusHtml += r.exists
-    ? '<span class="badge ok">Repo exists</span> '
-    : '<span class="badge err">Repo not found</span> ';
+    ? '<span class="badge ok" title="Repository directory exists and is accessible on disk">Repo exists</span> '
+    : '<span class="badge err" title="Repository local_dir not found on disk — check the path in repo settings">Repo not found</span> ';
   statusHtml += r.has_keys
-    ? '<span class="badge ok">GPG keys OK</span> '
-    : '<span class="badge warn">No GPG keys</span> ';
+    ? '<span class="badge ok" title="GPG private key is present in keys/. Repository can be signed during Rebuild Index.">GPG keys OK</span> '
+    : '<span class="badge warn" title="No GPG private key found. Assign a maintainer with generated keys and Rebuild Index to enable signing.">No GPG keys</span> ';
   statusHtml += r.has_index
-    ? '<span class="badge ok">Bin index</span> '
-    : '<span class="badge warn">No bin index</span> ';
+    ? '<span class="badge ok" title="Packages index exists — apt can install binary packages from this repository">Bin index</span> '
+    : '<span class="badge warn" title="No Packages index found. Click Rebuild Index to generate it.">No bin index</span> ';
   statusHtml += r.has_sources_index
-    ? '<span class="badge ok">Src index</span> '
-    : '<span class="badge warn">No src index</span> ';
+    ? '<span class="badge ok" title="Sources index exists — apt can fetch source packages from this repository">Src index</span> '
+    : '<span class="badge warn" title="No Sources index found. Source packages will not be available until Rebuild Index is run.">No src index</span> ';
   statusHtml += '</div>';
   statusHtml += '<p style="font-size:.78rem;color:var(--text-dim)">' + (r.local_dir || '—') + '</p>';
   if (r.maintainer_index !== undefined && r.maintainer_index !== null) {
-    statusHtml += `<p style="font-size:.78rem;color:var(--text-dim)">Maintainer index: ${r.maintainer_index}</p>`;
+    const md = await api('/api/maintainers');
+    const m = (md.maintainers || [])[r.maintainer_index];
+    const mLabel = m ? `${m.name} &lt;${m.email}&gt;` : `#${r.maintainer_index}`;
+    const hasKeys = m && m.has_keys;
+    statusHtml += `<p style="font-size:.78rem;color:var(--text-dim)">
+      Maintainer: <strong>${mLabel}</strong>
+      ${hasKeys
+        ? '<span class="badge ok" style="font-size:.7rem">Keys OK</span>'
+        : '<span class="badge err" style="font-size:.7rem">No GPG keys — go to Maintainers and Generate Key first</span>'}
+    </p>`;
   } else {
-    statusHtml += '<p style="font-size:.78rem;color:var(--warn)">No maintainer assigned — rebuild will fail.</p>';
+    statusHtml += '<p style="font-size:.78rem;color:var(--warn)">No maintainer assigned. Edit this repo and select a maintainer, then Rebuild Index.</p>';
   }
   document.getElementById('apt-repo-detail-status').innerHTML = statusHtml;
 

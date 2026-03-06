@@ -25,7 +25,7 @@
     <button data-page="simulators"><span class="icon">▷</span> Simulators</button>
     <button data-page="apt-repo"><span class="icon">≡</span> APT Repos</button>
     <div class="sep"></div>
-    <button data-page="maintainer"><span class="icon">⊕</span> Maintainer</button>
+    <button data-page="maintainer"><span class="icon">⊕</span> Maintainers</button>
     <button data-page="settings"><span class="icon">⚙</span> Settings</button>
     <div class="sep"></div>
     <button data-page="workflow"><span class="icon">⟳</span> ELBE Workflow</button>
@@ -203,7 +203,21 @@
         <div class="btn-row">
           <button class="btn" onclick="xmlSave()">Save</button>
           <button class="btn secondary" onclick="xmlValidateEditor()">Validate</button>
+          <button class="btn secondary" onclick="xmlShowInsertRepo()">+ Insert Repo</button>
           <button class="btn secondary" onclick="document.getElementById('xml-editor-section').style.display='none'">Close</button>
+        </div>
+        <!-- Insert Repo panel -->
+        <div id="xml-insert-repo" style="display:none;margin-top:.75rem;padding:.75rem;background:var(--bg);border:1px solid var(--border);border-radius:6px">
+          <div style="font-size:.85rem;font-weight:600;margin-bottom:.5rem">Insert APT repo into XML</div>
+          <div class="field-row" style="align-items:flex-end;gap:.5rem">
+            <div class="field" style="flex:1;margin:0">
+              <label>Repository</label>
+              <select id="xml-insert-repo-select"></select>
+            </div>
+            <button class="btn" onclick="xmlInsertRepo()">Insert</button>
+            <button class="btn secondary" onclick="document.getElementById('xml-insert-repo').style.display='none'">Cancel</button>
+          </div>
+          <div id="xml-insert-repo-preview" style="font-family:monospace;font-size:.75rem;color:var(--text-dim);margin-top:.5rem;white-space:pre"></div>
         </div>
         <div id="xml-editor-output" class="output" style="display:none"></div>
       </div>
@@ -625,9 +639,12 @@
             </select>
           </div>
         </div>
-        <div class="field" style="display:flex;gap:1rem;align-items:center">
+        <div class="field" style="display:flex;gap:1.5rem;align-items:center;flex-wrap:wrap">
           <label style="display:inline;margin:0"><input type="checkbox" id="apt-repo-trusted"> Trusted (skip GPG verification)</label>
           <label style="display:inline;margin:0"><input type="checkbox" id="apt-repo-enabled" checked> Enabled</label>
+          <label style="display:inline;margin:0"><input type="checkbox" id="apt-repo-pool-layout" checked> Pool layout
+            <span style="font-size:.75rem;color:var(--text-dim)" title="Organizes packages in pool/main/<x>/<pkg>/ subdirectories. Required for SBOM generation.">(required for SBOM)</span>
+          </label>
         </div>
         <div class="btn-row">
           <button class="btn" onclick="aptRepoSaveForm()">Save</button>
@@ -705,6 +722,10 @@
           <div class="field">
             <label>Email</label>
             <input type="text" id="maintainer-form-email" placeholder="e.g. filipe@example.com">
+          </div>
+          <div class="field">
+            <label>Organization <span style="color:var(--text-dim);font-size:.8rem">(optional)</span></label>
+            <input type="text" id="maintainer-form-org" placeholder="e.g. ELBE Demo Project">
           </div>
         </div>
         <div class="btn-row">

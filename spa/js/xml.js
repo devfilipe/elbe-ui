@@ -99,6 +99,67 @@ async function xmlSubmit(path) {
   }
 }
 
+/* ---------- Insert Repo ---------- */
+
+async function xmlShowInsertRepo() {
+  const panel = document.getElementById('xml-insert-repo');
+  panel.style.display = 'block';
+
+  const d = await api('/api/apt-repos');
+  const sel = document.getElementById('xml-insert-repo-select');
+  sel.innerHTML = '';
+  (d.repos || []).forEach((r, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = r.label || r.uri;
+    sel.appendChild(opt);
+  });
+
+  // Show preview on change
+  sel.onchange = () => xmlUpdateInsertRepoPreview(d.repos || []);
+  sel.onchange();
+}
+
+async function xmlUpdateInsertRepoPreview(repos) {
+  const i = parseInt(document.getElementById('xml-insert-repo-select').value);
+  const previewEl = document.getElementById('xml-insert-repo-preview');
+  if (isNaN(i) || !repos[i]) { previewEl.textContent = ''; return; }
+  const d = await api(`/api/apt-repos/${i}/elbe-xml`);
+  previewEl.textContent = d.xml || '';
+}
+
+async function xmlInsertRepo() {
+  const i = parseInt(document.getElementById('xml-insert-repo-select').value);
+  if (isNaN(i)) return;
+
+  const d = await api(`/api/apt-repos/${i}/elbe-xml`);
+  if (!d.xml) { toast('Could not get repo snippet', 'error'); return; }
+
+  const ta = document.getElementById('xml-editor-textarea');
+  const snippet = d.xml;
+
+  // Try to insert inside existing <url-list>...</url-list>
+  const content = ta.value;
+  const urlListClose = content.indexOf('</url-list>');
+
+  if (urlListClose !== -1) {
+    // Insert before closing tag, with indentation
+    const indent = '      ';
+    const indented = snippet.split('\n').map(l => l ? indent + l : l).join('\n');
+    ta.value = content.slice(0, urlListClose) + indented + '\n' + content.slice(urlListClose);
+    toast('Repo inserted into <url-list>', 'success');
+  } else {
+    // No url-list found — insert at cursor or append a comment
+    const pos = ta.selectionStart;
+    const before = content.slice(0, pos);
+    const after = content.slice(pos);
+    ta.value = before + '\n' + snippet + '\n' + after;
+    toast('Repo snippet inserted at cursor (add inside <url-list>)', 'info');
+  }
+
+  document.getElementById('xml-insert-repo').style.display = 'none';
+}
+
 async function xmlNewFile() {
   const name = prompt('New XML filename (e.g. my-image.xml):');
   if (!name) return;

@@ -23,9 +23,10 @@ async function loadMaintainers() {
     const hasKeys = m.has_keys
       ? '<span class="badge ok">Key OK</span>'
       : '<span class="badge warn">No key</span>';
+    const orgLabel = m.organization ? `<span style="font-size:.75rem;color:var(--text-dim)"> · ${m.organization}</span>` : '';
     html += `<tr>
       <td style="color:var(--text-dim);font-size:.8rem">${i}</td>
-      <td style="font-weight:600">${m.name || '—'}</td>
+      <td style="font-weight:600">${m.name || '—'}${orgLabel}</td>
       <td style="font-family:monospace;font-size:.85rem">${m.email || '—'}</td>
       <td>${hasKeys}</td>
       <td class="btn-row" style="border:0;flex-wrap:nowrap">
@@ -47,6 +48,7 @@ function maintainerShowAdd() {
   document.getElementById('maintainer-form-title').textContent = 'Add Maintainer';
   document.getElementById('maintainer-form-name').value = '';
   document.getElementById('maintainer-form-email').value = '';
+  document.getElementById('maintainer-form-org').value = '';
   document.getElementById('maintainer-form').style.display = 'block';
 }
 
@@ -58,6 +60,7 @@ function maintainerShowEdit(index) {
     document.getElementById('maintainer-form-title').textContent = 'Edit Maintainer';
     document.getElementById('maintainer-form-name').value = m.name || '';
     document.getElementById('maintainer-form-email').value = m.email || '';
+    document.getElementById('maintainer-form-org').value = m.organization || '';
     document.getElementById('maintainer-form').style.display = 'block';
   });
 }
@@ -68,8 +71,9 @@ function maintainerCancelForm() {
 
 async function maintainerSaveForm() {
   const body = {
-    name:  document.getElementById('maintainer-form-name').value.trim(),
-    email: document.getElementById('maintainer-form-email').value.trim(),
+    name:         document.getElementById('maintainer-form-name').value.trim(),
+    email:        document.getElementById('maintainer-form-email').value.trim(),
+    organization: document.getElementById('maintainer-form-org').value.trim(),
   };
   if (!body.name || !body.email) { toast('Name and email are required', 'error'); return; }
 
@@ -88,7 +92,7 @@ async function maintainerSaveForm() {
     });
   }
 
-  if (d.maintainer) {
+  if (d.index !== undefined) {
     toast(_maintainerEditIndex >= 0 ? 'Maintainer updated' : 'Maintainer added', 'success');
     document.getElementById('maintainer-form').style.display = 'none';
     loadMaintainers();
@@ -129,6 +133,11 @@ async function maintainerManageKeys(index) {
   await _maintainerRefreshKeys();
 }
 
+const _GPG_ALGO = {
+  '1': 'RSA', '2': 'RSA', '3': 'RSA', '17': 'DSA',
+  '18': 'ECDH', '19': 'ECDSA', '22': 'EdDSA',
+};
+
 async function _maintainerRefreshKeys() {
   if (_maintainerKeysIndex < 0) return;
   const d = await api(`/api/maintainers/${_maintainerKeysIndex}/gpg-keys`);
@@ -151,7 +160,7 @@ async function _maintainerRefreshKeys() {
     html += `<tr>
       <td style="font-size:.85rem">${k.uid || '—'}</td>
       <td style="font-family:monospace;font-size:.78rem">${k.keyid || '—'}</td>
-      <td style="font-size:.82rem">${k.algo || '—'}</td>
+      <td style="font-size:.82rem">${_GPG_ALGO[k.algo] || k.algo || '—'}</td>
       <td style="font-size:.82rem;color:var(--text-dim)">${k.created || '—'}</td>
       <td style="font-size:.82rem;color:var(--text-dim)">${k.expires || 'never'}</td>
       <td>${status}</td>
