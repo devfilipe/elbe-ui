@@ -16,11 +16,8 @@
   "qemu_extra_args": "",
   "max_concurrent_submits": 1,
   "max_vms": 1,
-  "maintainer": {
-    "name": "",
-    "email": "elbe-demo@local",
-    "organization": "ELBE Demo Project"
-  },
+  "maintainers": [],
+  "package_maintainers": {},
   "apt_repos": [
     {
       "label": "ELBE Demo Local",

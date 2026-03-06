@@ -49,27 +49,32 @@ async function loadSources() {
   el.innerHTML = html;
 }
 
-function sourcesShowCreatePkg(srcName, suggestedPkgName) {
+async function sourcesShowCreatePkg(srcName, suggestedPkgName) {
   document.getElementById('sources-create-src-name').value = srcName;
   document.getElementById('sources-create-pkg-name').value = suggestedPkgName;
   document.getElementById('sources-create-pkg-desc').value = '';
   document.getElementById('sources-create-pkg').style.display = 'block';
-  // Auto-fill maintainer from Maintainer settings
-  api('/api/maintainer').then(m => {
-    const formatted = (m.name && m.email) ? `${m.name} <${m.email}>` : '';
-    const el = document.getElementById('sources-create-pkg-maintainer');
-    if (el && formatted) el.value = formatted;
-  });
+  // Load maintainer dropdown
+  const d = await api('/api/maintainers');
+  const sel = document.getElementById('sources-create-pkg-maintainer');
+  if (sel) {
+    sel.innerHTML = '<option value="">— select a maintainer —</option>';
+    (d.maintainers || []).forEach((m, i) => {
+      sel.innerHTML += `<option value="${i}">${m.name} &lt;${m.email}&gt;</option>`;
+    });
+  }
 }
 
 async function sourcesCreatePackage() {
   const srcName = document.getElementById('sources-create-src-name').value;
+  const miRaw = document.getElementById('sources-create-pkg-maintainer').value;
+  if (!miRaw) { toast('Select a maintainer', 'error'); return; }
   const body = {
     source_name: srcName,
     package_name: document.getElementById('sources-create-pkg-name').value,
     description: document.getElementById('sources-create-pkg-desc').value,
     version: document.getElementById('sources-create-pkg-version').value,
-    maintainer: document.getElementById('sources-create-pkg-maintainer').value,
+    maintainer_index: parseInt(miRaw, 10),
     architecture: document.getElementById('sources-create-pkg-arch').value,
   };
 

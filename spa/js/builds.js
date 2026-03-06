@@ -258,6 +258,13 @@ async function buildsLoadOutputs() {
       ? `<div style="font-size:.72rem;color:var(--text-dim);margin-top:.25rem">${mappingParts.join(' · ')}</div>`
       : '';
 
+    // SBOM button — only when source.xml is present (processed build with package metadata)
+    const hasSourceXml = files.some(f => f.name === 'source.xml');
+    const hasSbom = files.some(f => f.name === 'sbom.cdx.json');
+    const sbomBtn = hasSourceXml
+      ? `<button class="btn secondary" onclick="event.stopPropagation();buildsGenerateSbom('${b.path}')" style="font-size:.72rem;padding:2px 8px;margin-left:.5rem" title="Generate CycloneDX SBOM">${hasSbom ? '↺ SBOM' : '⊕ SBOM'}</button>`
+      : '';
+
     // Summary line: name + stats badge + delete button
     const summaryStats = `<span style="font-size:.72rem;color:var(--text-dim);margin-left:auto;white-space:nowrap">${fileCount} files · ${sizeMB} MB</span>`;
     const deleteBtn = `<button class="btn danger" onclick="event.stopPropagation();buildsDelete('${b.path}')" style="font-size:.72rem;padding:2px 8px;margin-left:.5rem" title="Delete build">✕</button>`;
@@ -269,6 +276,7 @@ async function buildsLoadOutputs() {
       <summary>
         ${b.name}
         ${summaryStats}
+        ${sbomBtn}
         ${deleteBtn}
       </summary>
       <div class="section-collapse-body">
@@ -295,6 +303,22 @@ async function buildsExtract(buildPath, filename) {
     toast(d.error || 'Extract failed', 'error');
   }
   buildsLoadOutputs();
+}
+
+async function buildsGenerateSbom(buildPath) {
+  toast('Generating CycloneDX SBOM…', 'info', 4000);
+  const d = await api('/api/builds/sbom', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ build_path: buildPath }),
+  });
+  if (d.generated) {
+    const count = d.component_count !== null ? ` (${d.component_count} components)` : '';
+    toast(`SBOM generated: ${d.sbom_file}${count}`, 'success', 6000);
+    buildsLoadOutputs();
+  } else {
+    toast(d.error || d.detail || 'SBOM generation failed', 'error');
+  }
 }
 
 async function buildsDelete(path) {

@@ -66,15 +66,30 @@ function loadAptRepo() { loadAptRepos(); }
 
 /* ---------- Add / Edit form ---------- */
 
+async function _aptLoadMaintainerSelect(selectedIndex) {
+  const sel = document.getElementById('apt-repo-maintainer-index');
+  if (!sel) return;
+  const d = await api('/api/maintainers');
+  sel.innerHTML = '<option value="">— select a maintainer —</option>';
+  (d.maintainers || []).forEach((m, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = `${m.name} <${m.email}>`;
+    if (i === selectedIndex) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
 function aptRepoShowAdd() {
   document.getElementById('apt-repo-form-title').textContent = 'Add Repository';
   document.getElementById('apt-repo-edit-index').value = '-1';
   _aptFormClear();
+  _aptLoadMaintainerSelect(null);
   document.getElementById('apt-repo-form').style.display = 'block';
 }
 
 function aptRepoEdit(index) {
-  api('/api/apt-repos').then(d => {
+  api('/api/apt-repos').then(async d => {
     const r = (d.repos || [])[index];
     if (!r) return;
     document.getElementById('apt-repo-form-title').textContent = 'Edit Repository';
@@ -89,6 +104,7 @@ function aptRepoEdit(index) {
     document.getElementById('apt-repo-local-dir').value = r.local_dir || '';
     document.getElementById('apt-repo-trusted').checked = !!r.trusted;
     document.getElementById('apt-repo-enabled').checked = r.enabled !== false;
+    await _aptLoadMaintainerSelect(r.maintainer_index ?? null);
     document.getElementById('apt-repo-form').style.display = 'block';
   });
 }
@@ -102,21 +118,26 @@ function _aptFormClear() {
   document.getElementById('apt-repo-suite').value = './';
   document.getElementById('apt-repo-trusted').checked = false;
   document.getElementById('apt-repo-enabled').checked = true;
+  const sel = document.getElementById('apt-repo-maintainer-index');
+  if (sel) sel.value = '';
 }
 
 function _aptFormData() {
-  return {
-    label:      document.getElementById('apt-repo-label').value,
-    type:       document.getElementById('apt-repo-type').value,
-    uri:        document.getElementById('apt-repo-uri').value,
-    suite:      document.getElementById('apt-repo-suite').value || './',
-    components: document.getElementById('apt-repo-components').value,
-    arch:       document.getElementById('apt-repo-arch').value,
-    signed_by:  document.getElementById('apt-repo-signed-by').value,
-    trusted:    document.getElementById('apt-repo-trusted').checked,
-    enabled:    document.getElementById('apt-repo-enabled').checked,
-    local_dir:  document.getElementById('apt-repo-local-dir').value,
+  const miRaw = document.getElementById('apt-repo-maintainer-index').value;
+  const body = {
+    label:            document.getElementById('apt-repo-label').value,
+    type:             document.getElementById('apt-repo-type').value,
+    uri:              document.getElementById('apt-repo-uri').value,
+    suite:            document.getElementById('apt-repo-suite').value || './',
+    components:       document.getElementById('apt-repo-components').value,
+    arch:             document.getElementById('apt-repo-arch').value,
+    signed_by:        document.getElementById('apt-repo-signed-by').value,
+    trusted:          document.getElementById('apt-repo-trusted').checked,
+    enabled:          document.getElementById('apt-repo-enabled').checked,
+    local_dir:        document.getElementById('apt-repo-local-dir').value,
   };
+  if (miRaw !== '') body.maintainer_index = parseInt(miRaw, 10);
+  return body;
 }
 
 async function aptRepoSaveForm() {
@@ -193,6 +214,11 @@ async function aptRepoShowDetail(index) {
     : '<span class="badge warn">No src index</span> ';
   statusHtml += '</div>';
   statusHtml += '<p style="font-size:.78rem;color:var(--text-dim)">' + (r.local_dir || '—') + '</p>';
+  if (r.maintainer_index !== undefined && r.maintainer_index !== null) {
+    statusHtml += `<p style="font-size:.78rem;color:var(--text-dim)">Maintainer index: ${r.maintainer_index}</p>`;
+  } else {
+    statusHtml += '<p style="font-size:.78rem;color:var(--warn)">No maintainer assigned — rebuild will fail.</p>';
+  }
   document.getElementById('apt-repo-detail-status').innerHTML = statusHtml;
 
   // Binary packages
@@ -231,16 +257,6 @@ async function aptRepoShowDetail(index) {
   pkgEl.innerHTML = pkgHtml;
 
   document.getElementById('apt-repo-detail').style.display = 'block';
-}
-
-async function aptRepoDetailGenKeys() {
-  if (_aptDetailIndex < 0) return;
-  show('apt-repo-output', 'Generating GPG keys...');
-  const d = await api(`/api/apt-repos/${_aptDetailIndex}/gen-keys`, { method: 'POST' });
-  show('apt-repo-output', d);
-  if (d.returncode === 0) toast('GPG keys generated', 'success');
-  else toast('Key generation failed', 'error');
-  aptRepoShowDetail(_aptDetailIndex);
 }
 
 async function aptRepoDetailRebuild() {

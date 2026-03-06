@@ -52,11 +52,8 @@ DEFAULT_SETTINGS = {
     "qemu_memory": "1024",
     "qemu_extra_args": "",
     "max_concurrent_submits": 1,
-    "maintainer": {
-        "name": "",
-        "email": "elbe-demo@local",
-        "organization": "ELBE Demo Project",
-    },
+    "maintainers": [],
+    "package_maintainers": {},
     "apt_repos": [
         {
             "label": "ELBE Demo Local",
@@ -212,75 +209,117 @@ async def update_settings(request: Request):
 # MAINTAINER
 # ===========================================================================
 
-GNUPG_HOME = pathlib.Path(__file__).parent / ".gnupg"
+MAINTAINER_KEYS_DIR = pathlib.Path(__file__).parent / ".maintainer_keys"
 
 
-def _maintainer() -> dict:
-    """Return the maintainer dict from settings."""
-    return _load_settings().get("maintainer", DEFAULT_SETTINGS["maintainer"])
+def _get_maintainers() -> list:
+    return _load_settings().get("maintainers", [])
 
 
-def _maintainer_formatted() -> str:
-    """Return 'Name <email>' for use in debian/control etc."""
-    m = _maintainer()
-    if m.get("name") and m.get("email"):
-        return f"{m['name']} <{m['email']}>"
-    return m.get("email", "elbe-demo@local")
+def _get_maintainer(index: int) -> dict:
+    maintainers = _get_maintainers()
+    if index < 0 or index >= len(maintainers):
+        raise HTTPException(status_code=404, detail="Maintainer not found")
+    return maintainers[index]
 
 
-@app.get("/api/maintainer")
-def get_maintainer():
-    return _maintainer()
+def _maintainer_gnupg_dir(index: int) -> pathlib.Path:
+    return MAINTAINER_KEYS_DIR / str(index) / ".gnupg"
 
 
-@app.put("/api/maintainer")
-async def update_maintainer(request: Request):
+def _maintainer_formatted(index: int) -> str:
+    try:
+        m = _get_maintainer(index)
+        if m.get("name") and m.get("email"):
+            return f"{m['name']} <{m['email']}>"
+        return m.get("email", "")
+    except Exception:
+        return ""
+
+
+def _maintainer_has_keys(index: int) -> bool:
+    gnupg = _maintainer_gnupg_dir(index)
+    if not gnupg.exists():
+        return False
+    result = _run(["gpg", "--homedir", str(gnupg), "--list-keys", "--with-colons"], timeout=10)
+    return result["returncode"] == 0 and bool(result["stdout"].strip())
+
+
+# ---------------------------------------------------------------------------
+# Maintainers CRUD
+# ---------------------------------------------------------------------------
+
+@app.get("/api/maintainers")
+def list_maintainers():
+    maintainers = _get_maintainers()
+    result = []
+    for i, m in enumerate(maintainers):
+        result.append({**m, "index": i, "has_keys": _maintainer_has_keys(i)})
+    return {"maintainers": result}
+
+
+@app.post("/api/maintainers")
+async def create_maintainer(request: Request):
+    body = await request.json()
+    if not body.get("name") or not body.get("email"):
+        raise HTTPException(status_code=400, detail="name and email are required")
+    s = _load_settings()
+    maintainers = s.get("maintainers", [])
+    maintainers.append({"name": body["name"], "email": body["email"], "organization": body.get("organization", "")})
+    s["maintainers"] = maintainers
+    _save_settings(s)
+    return {"index": len(maintainers) - 1, **maintainers[-1]}
+
+
+@app.put("/api/maintainers/{index}")
+async def update_maintainer(index: int, request: Request):
     body = await request.json()
     s = _load_settings()
-    m = s.get("maintainer", dict(DEFAULT_SETTINGS["maintainer"]))
-    m.update(body)
-    s["maintainer"] = m
+    maintainers = s.get("maintainers", [])
+    if index < 0 or index >= len(maintainers):
+        raise HTTPException(status_code=404, detail="Maintainer not found")
+    maintainers[index].update({k: v for k, v in body.items() if k in ("name", "email", "organization")})
+    s["maintainers"] = maintainers
     _save_settings(s)
-    return m
+    return {"index": index, **maintainers[index]}
 
 
-@app.get("/api/maintainer/gpg-keys")
-def list_gpg_keys():
-    """List GPG keys in the maintainer keyring."""
-    GNUPG_HOME.mkdir(parents=True, exist_ok=True)
-    result = _run([
-        "gpg", "--homedir", str(GNUPG_HOME), "--batch",
-        "--list-keys", "--with-colons", "--keyid-format", "long",
-    ], timeout=30)
-    keys = []
-    if result["returncode"] == 0:
-        lines = result["stdout"].splitlines()
-        current = {}
-        for line in lines:
-            parts = line.split(":")
-            if parts[0] == "pub":
-                current = {
-                    "algo": parts[3],
-                    "keyid": parts[4],
-                    "created": parts[5],
-                    "expires": parts[6] or "never",
-                    "expired": parts[1] == "e",
-                }
-                keys.append(current)
-            elif parts[0] == "uid" and current:
-                current["uid"] = parts[9]
-    return {"keys": keys}
+@app.delete("/api/maintainers/{index}")
+def delete_maintainer(index: int):
+    s = _load_settings()
+    maintainers = s.get("maintainers", [])
+    if index < 0 or index >= len(maintainers):
+        raise HTTPException(status_code=404, detail="Maintainer not found")
+    removed = maintainers.pop(index)
+    # Renumber package_maintainers: remove refs to deleted index, decrement higher
+    pkg_m = s.get("package_maintainers", {})
+    s["package_maintainers"] = {k: (v - 1 if v > index else v) for k, v in pkg_m.items() if v != index}
+    # Same for apt_repos maintainer_index
+    for r in s.get("apt_repos", []):
+        mi = r.get("maintainer_index")
+        if mi == index:
+            r.pop("maintainer_index", None)
+        elif mi is not None and mi > index:
+            r["maintainer_index"] = mi - 1
+    s["maintainers"] = maintainers
+    _save_settings(s)
+    # Clean up GPG dir for deleted maintainer
+    import shutil as _shutil
+    keys_path = MAINTAINER_KEYS_DIR / str(index)
+    if keys_path.exists():
+        _shutil.rmtree(keys_path, ignore_errors=True)
+    return {"deleted": True, "name": removed.get("name")}
 
 
-@app.post("/api/maintainer/gpg-keys/generate")
-def generate_gpg_key():
-    """Generate a new GPG key using the maintainer identity."""
-    m = _maintainer()
+@app.post("/api/maintainers/{index}/gen-keys")
+def maintainer_gen_keys(index: int):
+    """Generate a GPG key pair for a maintainer, stored in app's key store."""
+    m = _get_maintainer(index)
     if not m.get("name") or not m.get("email"):
-        raise HTTPException(status_code=400, detail="Maintainer name and email are required")
-    GNUPG_HOME.mkdir(parents=True, exist_ok=True)
-    os.chmod(str(GNUPG_HOME), 0o700)
-
+        raise HTTPException(status_code=400, detail="name and email are required")
+    gnupg = _maintainer_gnupg_dir(index)
+    gnupg.mkdir(parents=True, exist_ok=True)
+    os.chmod(str(gnupg), 0o700)
     batch_input = f"""Key-Type: RSA
 Key-Length: 4096
 Name-Real: {m['name']}
@@ -290,15 +329,13 @@ Expire-Date: 0
 %commit
 """
     result = subprocess.run(
-        ["gpg", "--homedir", str(GNUPG_HOME), "--batch", "--gen-key"],
+        ["gpg", "--homedir", str(gnupg), "--batch", "--gen-key"],
         input=batch_input, capture_output=True, text=True, timeout=120,
     )
     if result.returncode != 0:
         return {"error": result.stderr.strip(), "returncode": result.returncode}
-
-    # Get the key ID of the newly generated key
     list_result = _run([
-        "gpg", "--homedir", str(GNUPG_HOME), "--batch",
+        "gpg", "--homedir", str(gnupg), "--batch",
         "--list-keys", "--with-colons", "--keyid-format", "long", m["email"],
     ], timeout=15)
     keyid = ""
@@ -309,83 +346,68 @@ Expire-Date: 0
     return {"keyid": keyid, "email": m["email"], "returncode": 0}
 
 
-@app.get("/api/maintainer/gpg-keys/export-public")
-def export_public_key():
-    """Export the maintainer's public GPG key (ASCII-armored)."""
-    m = _maintainer()
-    if not m.get("email"):
-        raise HTTPException(status_code=400, detail="Maintainer email not set")
+@app.get("/api/maintainers/{index}/gpg-keys")
+def maintainer_list_keys(index: int):
+    """List GPG keys for a specific maintainer."""
+    _get_maintainer(index)  # validates index
+    gnupg = _maintainer_gnupg_dir(index)
+    if not gnupg.exists():
+        return {"keys": []}
     result = _run([
-        "gpg", "--homedir", str(GNUPG_HOME), "--batch",
-        "--armor", "--export", m["email"],
+        "gpg", "--homedir", str(gnupg), "--batch",
+        "--list-keys", "--with-colons", "--keyid-format", "long",
     ], timeout=15)
+    keys = []
+    current = {}
+    for line in result.get("stdout", "").splitlines():
+        parts = line.split(":")
+        if parts[0] == "pub":
+            current = {"algo": parts[3], "keyid": parts[4], "created": parts[5],
+                       "expires": parts[6] or "never", "expired": parts[1] == "e"}
+            keys.append(current)
+        elif parts[0] == "uid" and current:
+            current["uid"] = parts[9]
+    return {"keys": keys}
+
+
+@app.get("/api/maintainers/{index}/export-public")
+def maintainer_export_public(index: int):
+    """Export the maintainer's public GPG key (ASCII-armored)."""
+    m = _get_maintainer(index)
+    gnupg = _maintainer_gnupg_dir(index)
+    result = _run(["gpg", "--homedir", str(gnupg), "--batch", "--armor", "--export", m["email"]], timeout=15)
     if result["returncode"] == 0 and result["stdout"]:
         return {"public_key": result["stdout"]}
-    return {"error": "No public key found for " + m["email"]}
+    return {"error": f"No public key found for {m['email']}"}
 
 
-class CopyKeysToRepoRequest(BaseModel):
-    repo_index: int = 0
-
-
-@app.post("/api/maintainer/gpg-keys/copy-to-repo")
-def copy_keys_to_repo(req: CopyKeysToRepoRequest):
-    """Copy the maintainer's GPG keys into a local APT repo's keys/ directory."""
-    m = _maintainer()
-    if not m.get("email"):
-        raise HTTPException(status_code=400, detail="Maintainer email not set")
-    r = _get_repo(req.repo_index)
-    ld = _repo_local_dir(r)
-    if not ld:
-        raise HTTPException(status_code=400, detail="Repo has no local directory")
-
-    keys_dir = ld / "keys"
+def _copy_maintainer_keys_to_repo(maintainer_index: int, repo_local_dir: pathlib.Path) -> dict:
+    """Copy a maintainer's GPG keys into a local APT repo's keys/ directory."""
+    m = _get_maintainer(maintainer_index)
+    gnupg = _maintainer_gnupg_dir(maintainer_index)
+    keys_dir = repo_local_dir / "keys"
     keys_dir.mkdir(parents=True, exist_ok=True)
-    gnupg_dir = ld / ".gnupg"
-    gnupg_dir.mkdir(parents=True, exist_ok=True)
-    os.chmod(str(gnupg_dir), 0o700)
 
-    # Export private key to repo's keys/
-    priv = _run([
-        "gpg", "--homedir", str(GNUPG_HOME), "--batch",
-        "--armor", "--export-secret-keys", m["email"],
-    ], timeout=15)
+    priv = _run(["gpg", "--homedir", str(gnupg), "--batch",
+                 "--armor", "--export-secret-keys", m["email"]], timeout=15)
     if priv["returncode"] != 0 or not priv["stdout"]:
-        return {"error": "Failed to export private key", "copied": False}
+        return {"error": "No private key found — generate keys for this maintainer first", "copied": False}
     (keys_dir / "private.gpg").write_text(priv["stdout"])
     os.chmod(str(keys_dir / "private.gpg"), 0o600)
 
-    # Export public key to repo's keys/
-    pub = _run([
-        "gpg", "--homedir", str(GNUPG_HOME), "--batch",
-        "--armor", "--export", m["email"],
-    ], timeout=15)
+    pub = _run(["gpg", "--homedir", str(gnupg), "--batch",
+                "--armor", "--export", m["email"]], timeout=15)
     if pub["returncode"] == 0 and pub["stdout"]:
         (keys_dir / "public.asc").write_text(pub["stdout"])
 
-    # Export binary public key to repo/repo-key.gpg
-    repo_dir = ld / "repo"
+    repo_dir = repo_local_dir / "repo"
     repo_dir.mkdir(parents=True, exist_ok=True)
     bin_result = subprocess.run(
-        ["gpg", "--homedir", str(GNUPG_HOME), "--batch", "--export", m["email"]],
+        ["gpg", "--homedir", str(gnupg), "--batch", "--export", m["email"]],
         capture_output=True, timeout=15,
     )
     if bin_result.returncode == 0 and bin_result.stdout:
         (repo_dir / "repo-key.gpg").write_bytes(bin_result.stdout)
-
-    # Import into the repo's local .gnupg so build-repo.sh can sign
-    _run([
-        "gpg", "--homedir", str(gnupg_dir), "--batch",
-        "--import", str(keys_dir / "private.gpg"),
-    ], timeout=15)
-
-    # Auto-fill signed_by in the repo config to point to the public keyring
-    settings = _load_settings()
-    repos = settings.get("apt_repos", [])
-    if 0 <= req.repo_index < len(repos):
-        repos[req.repo_index]["signed_by"] = str(repo_dir / "repo-key.gpg")
-        settings["apt_repos"] = repos
-        _save_settings(settings)
 
     return {"copied": True, "keys_dir": str(keys_dir)}
 
@@ -664,6 +686,23 @@ def stop_initvm_vm(name: str):
         "--port", str(soap_port),
         timeout=60,
     )
+
+
+@app.post("/api/initvms/{name}/destroy")
+def destroy_initvm_vm(name: str):
+    """Stop QEMU if running, then permanently delete the VM directory."""
+    vm_path = _vm_dir(name)
+    if not vm_path.is_dir():
+        raise HTTPException(404, detail=f"VM '{name}' not found.")
+    cfg = _read_vm_config(vm_path)
+    soap_port = cfg.get("soap_port", SOAP_PORT_BASE)
+    if _vm_qemu_running(str(vm_path)):
+        _elbe("initvm", "stop", "--qemu",
+              "--directory", str(vm_path),
+              "--port", str(soap_port),
+              timeout=60)
+    shutil.rmtree(vm_path, ignore_errors=True)
+    return {"destroyed": True, "name": name}
 
 
 @app.get("/api/initvms/{name}/status")
@@ -1407,15 +1446,16 @@ def apt_repos_list():
 
 class AptRepoEntry(BaseModel):
     label: str = ""
-    type: str = "deb"             # deb | deb-src
+    type: str = "deb"
     uri: str = ""
-    suite: str = "./"             # bookworm | stable | ./
-    components: str = ""          # main contrib non-free
-    arch: str = ""                # amd64 | arm64 | empty = all
-    signed_by: str = ""           # path to GPG keyring
+    suite: str = "./"
+    components: str = ""
+    arch: str = ""
+    signed_by: str = ""
     trusted: bool = False
     enabled: bool = True
-    local_dir: str = ""           # local dir for management (gen-keys, rebuild, upload)
+    local_dir: str = ""
+    maintainer_index: Optional[int] = None
 
 
 @app.post("/api/apt-repos")
@@ -1515,29 +1555,19 @@ def apt_repos_elbe_xml(index: int):
 
 # --- Per-repo operations (for repos with local_dir) ---
 
-@app.post("/api/apt-repos/{index}/gen-keys")
-def apt_repos_gen_keys(index: int):
-    """Run gen-keys.sh for a specific local repo, using maintainer identity."""
-    r = _get_repo(index)
-    ld = _repo_local_dir(r)
-    if not ld:
-        raise HTTPException(status_code=400, detail="Repository has no local directory")
-    script = ld / "gen-keys.sh"
-    if not script.is_file():
-        raise HTTPException(status_code=404, detail="gen-keys.sh not found")
-    m = _maintainer()
-    name = m.get("name") or "ELBE Demo Repo Signing Key"
-    email = m.get("email") or "elbe-demo@local"
-    return _run(["bash", str(script), name, email], timeout=60)
-
-
 @app.post("/api/apt-repos/{index}/rebuild")
 def apt_repos_rebuild(index: int):
-    """Run build-repo.sh for a specific local repo."""
+    """Copy maintainer keys to repo then run build-repo.sh."""
     r = _get_repo(index)
     ld = _repo_local_dir(r)
     if not ld:
         raise HTTPException(status_code=400, detail="Repository has no local directory")
+    mi = r.get("maintainer_index")
+    if mi is None:
+        raise HTTPException(status_code=400, detail="No maintainer assigned to this repository")
+    copy_result = _copy_maintainer_keys_to_repo(mi, ld)
+    if not copy_result.get("copied"):
+        raise HTTPException(status_code=400, detail=copy_result.get("error", "Failed to copy keys"))
     script = ld / "build-repo.sh"
     if not script.is_file():
         raise HTTPException(status_code=404, detail="build-repo.sh not found")
@@ -1638,15 +1668,16 @@ class CreatePackageTemplate(BaseModel):
     package_name: Optional[str] = None
     description: str = ""
     version: str = "1.0.0"
-    maintainer: str = ""  # auto-filled from Maintainer settings if empty
+    maintainer_index: Optional[int] = None
     architecture: str = "amd64"
 
 
 @app.post("/api/sources/create-package")
 def create_package_template(req: CreatePackageTemplate):
     """Create a Debian package template in packages_dir from a source project."""
-    # Auto-fill maintainer from settings if not provided
-    maintainer = req.maintainer or _maintainer_formatted()
+    if req.maintainer_index is None:
+        raise HTTPException(status_code=400, detail="maintainer_index is required")
+    maintainer = _maintainer_formatted(req.maintainer_index)
     src_dir = pathlib.Path(S("sources_dir")) / req.source_name
     if not src_dir.is_dir():
         raise HTTPException(status_code=404, detail=f"Source not found: {req.source_name}")
@@ -1705,6 +1736,11 @@ override_dh_auto_clean:
     source_dir = debian_dir / "source"
     source_dir.mkdir(exist_ok=True)
     (source_dir / "format").write_text("3.0 (native)\n")
+
+    # Persist the maintainer association
+    s = _load_settings()
+    s.setdefault("package_maintainers", {})[pkg_name] = req.maintainer_index
+    _save_settings(s)
 
     return {
         "package_name": pkg_name,
@@ -1924,9 +1960,38 @@ def clean_package(req: BuildDebRequest):
     return {"clean_result": clean_result, "removed_files": removed}
 
 
+@app.get("/api/packages/{name}/maintainer")
+def package_get_maintainer(name: str):
+    """Return the maintainer_index assigned to this package, if any."""
+    s = _load_settings()
+    mi = s.get("package_maintainers", {}).get(name)
+    if mi is None:
+        return {"maintainer_index": None}
+    try:
+        m = _get_maintainer(mi)
+    except HTTPException:
+        return {"maintainer_index": mi, "error": "Maintainer not found"}
+    return {"maintainer_index": mi, "name": m.get("name"), "email": m.get("email")}
+
+
+class SetPackageMaintainerRequest(BaseModel):
+    maintainer_index: int
+
+
+@app.put("/api/packages/{name}/maintainer")
+def package_set_maintainer(name: str, req: SetPackageMaintainerRequest):
+    """Assign a maintainer to a package."""
+    _get_maintainer(req.maintainer_index)  # validates index
+    s = _load_settings()
+    s.setdefault("package_maintainers", {})[name] = req.maintainer_index
+    _save_settings(s)
+    return {"package_name": name, "maintainer_index": req.maintainer_index}
+
+
 class BuildDebFullRequest(BaseModel):
     package_name: str
     build_source: bool = True   # also build source package (.dsc + .tar.*)
+    maintainer_index: Optional[int] = None  # if provided, persists the per-package maintainer
 
 
 @app.post("/api/packages/build-deb")
@@ -1943,6 +2008,19 @@ def build_deb(req: BuildDebFullRequest):
     debian_dir = pkg_dir / "debian"
     if not debian_dir.is_dir():
         raise HTTPException(status_code=400, detail="No debian/ directory found")
+
+    # Persist or validate maintainer association
+    s = _load_settings()
+    pkg_m = s.get("package_maintainers", {})
+    if req.maintainer_index is not None:
+        pkg_m[req.package_name] = req.maintainer_index
+        s["package_maintainers"] = pkg_m
+        _save_settings(s)
+    else:
+        mi = pkg_m.get(req.package_name)
+        if mi is None:
+            raise HTTPException(status_code=400, detail="No maintainer assigned to this package. Select a maintainer before building.")
+        req.maintainer_index = mi
 
     # Prepare dist/ output directory
     dist_dir = pkg_dir / "dist"
@@ -2299,6 +2377,62 @@ def read_build_file(req: BuildFileReadRequest):
         truncated = False
 
     return {"filename": req.filename, "size": size, "truncated": truncated, "content": content}
+
+
+class SbomRequest(BaseModel):
+    build_path: str
+
+
+@app.post("/api/builds/sbom")
+def generate_sbom(req: SbomRequest):
+    """Generate a CycloneDX SBOM for a completed build using elbe cyclonedx-sbom."""
+    build_dir = pathlib.Path(req.build_path)
+
+    # Security: must be a known build directory
+    known = any(build_dir == d for d in _get_builds_dirs() if d.is_dir())
+    if not known:
+        raise HTTPException(status_code=403, detail="Not a known build directory")
+    if not build_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Build directory not found")
+
+    source_xml = build_dir / "source.xml"
+    if not source_xml.exists():
+        raise HTTPException(
+            status_code=422,
+            detail="source.xml not found — SBOM requires a completed build with license and package metadata.",
+        )
+
+    sbom_path = build_dir / "sbom.cdx.json"
+    errors_path = build_dir / "sbom-errors.txt"
+
+    result = _run(
+        [S("elbe_bin"), "cyclonedx-sbom",
+         "-d", str(build_dir),
+         "-o", str(sbom_path),
+         "-e", str(errors_path)],
+        timeout=60,
+    )
+
+    if result["returncode"] != 0:
+        return {
+            "generated": False,
+            "error": (result["stderr"] or result["stdout"] or "elbe cyclonedx-sbom failed").strip(),
+        }
+
+    # Parse component count from the generated JSON
+    component_count = None
+    try:
+        sbom_data = json.loads(sbom_path.read_text())
+        component_count = len(sbom_data.get("components", []))
+    except Exception:
+        pass
+
+    return {
+        "generated": True,
+        "sbom_file": sbom_path.name,
+        "errors_file": errors_path.name if errors_path.exists() else None,
+        "component_count": component_count,
+    }
 
 
 # ===========================================================================

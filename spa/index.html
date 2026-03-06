@@ -186,6 +186,7 @@
           <button class="btn secondary" onclick="xmlNewFile()">+ New XML</button>
         </div>
         <div id="xml-list"></div>
+        <div id="xml-validate-output" class="output" style="display:none;margin-top:.75rem"></div>
       </div>
 
       <!-- Inline editor (hidden by default) -->
@@ -262,7 +263,9 @@
         </div>
         <div class="field">
           <label>Maintainer</label>
-          <input type="text" id="sources-create-pkg-maintainer" value="ELBE Demo <elbe-demo@local>">
+          <select id="sources-create-pkg-maintainer">
+            <option value="">— select a maintainer —</option>
+          </select>
         </div>
         <div class="btn-row">
           <button class="btn" onclick="sourcesCreatePackage()">Create Package</button>
@@ -302,6 +305,15 @@
       <div id="packages-actions" class="card" style="display:none">
         <h3 id="packages-actions-title">Package Actions</h3>
         <input type="hidden" id="packages-actions-name">
+
+        <div class="field-row" style="margin-bottom:.5rem">
+          <div class="field">
+            <label>Maintainer</label>
+            <select id="packages-maintainer-select">
+              <option value="">— select a maintainer —</option>
+            </select>
+          </div>
+        </div>
 
         <div class="btn-row">
           <button class="btn" onclick="packageBuildDeb()">Build .deb</button>
@@ -601,9 +613,17 @@
             <input type="text" id="apt-repo-signed-by" placeholder="/usr/share/keyrings/repo.gpg">
           </div>
         </div>
-        <div class="field">
-          <label>Local directory (for manage: gen-keys, rebuild, upload)</label>
-          <input type="text" id="apt-repo-local-dir" placeholder="/workspace/tools/elbe-demo-apt-repository (optional)">
+        <div class="field-row">
+          <div class="field">
+            <label>Local directory (for manage: rebuild, upload)</label>
+            <input type="text" id="apt-repo-local-dir" placeholder="/workspace/tools/elbe-demo-apt-repository (optional)">
+          </div>
+          <div class="field">
+            <label>Maintainer (for GPG signing)</label>
+            <select id="apt-repo-maintainer-index">
+              <option value="">— select a maintainer —</option>
+            </select>
+          </div>
         </div>
         <div class="field" style="display:flex;gap:1rem;align-items:center">
           <label style="display:inline;margin:0"><input type="checkbox" id="apt-repo-trusted"> Trusted (skip GPG verification)</label>
@@ -620,7 +640,6 @@
         <h3 id="apt-repo-detail-title">Repository Details</h3>
         <div id="apt-repo-detail-status"></div>
         <div class="btn-row" style="margin-top:.75rem">
-          <button class="btn secondary" onclick="aptRepoDetailGenKeys()">Generate GPG Keys</button>
           <button class="btn secondary" onclick="aptRepoDetailRebuild()">Rebuild Index</button>
         </div>
         <div class="field" style="margin-top:.75rem">
@@ -658,67 +677,50 @@
     <!-- MAINTAINER                                                      -->
     <!-- ============================================================== -->
     <div id="maintainer" class="page">
-      <h2 class="page-title">Maintainer</h2>
+      <h2 class="page-title">Maintainers
+        <span style="margin-left:auto;display:flex;gap:.5rem">
+          <button class="btn" onclick="maintainerShowAdd()">+ Add Maintainer</button>
+          <button class="btn secondary" onclick="loadMaintainers()">↻ Refresh</button>
+        </span>
+      </h2>
 
-      <!-- Identity -->
+      <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.75rem">
+        Maintainers are used in <code>debian/control</code>, <code>debian/changelog</code>,
+        GPG key generation, and APT repository signing. Each APT repo and package selects a maintainer.
+      </p>
+
+      <!-- List -->
       <div class="card">
-        <h3>Identity</h3>
-        <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.75rem">
-          Maintainer information used in <code>debian/control</code>,
-          <code>debian/changelog</code>, GPG key generation, and APT repository metadata.
-        </p>
+        <div id="maintainers-list"><em>Loading…</em></div>
+      </div>
+
+      <!-- Add / Edit form -->
+      <div id="maintainer-form" class="card" style="display:none">
+        <h3 id="maintainer-form-title">Add Maintainer</h3>
         <div class="field-row">
           <div class="field">
             <label>Full name</label>
-            <input type="text" id="maintainer-name" placeholder="e.g. Filipe Moraes">
+            <input type="text" id="maintainer-form-name" placeholder="e.g. Filipe Moraes">
           </div>
           <div class="field">
             <label>Email</label>
-            <input type="text" id="maintainer-email" placeholder="e.g. filipe@example.com">
-          </div>
-        </div>
-        <div class="field-row">
-          <div class="field">
-            <label>Organization</label>
-            <input type="text" id="maintainer-org" placeholder="e.g. ELBE Demo Project">
-          </div>
-          <div class="field">
-            <label>Formatted (auto-generated)</label>
-            <input type="text" id="maintainer-formatted" readonly
-              style="background:var(--bg);font-family:monospace;font-size:.85rem">
+            <input type="text" id="maintainer-form-email" placeholder="e.g. filipe@example.com">
           </div>
         </div>
         <div class="btn-row">
-          <button class="btn" onclick="maintainerSave()">Save Identity</button>
-          <button class="btn secondary" onclick="maintainerLoad()">↻ Reload</button>
+          <button class="btn" onclick="maintainerSaveForm()">Save</button>
+          <button class="btn secondary" onclick="maintainerCancelForm()">Cancel</button>
         </div>
       </div>
 
-      <!-- GPG Keys -->
-      <div class="card">
-        <h3>GPG Keys</h3>
-        <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.75rem">
-          Keys used to sign APT repositories. The key is generated using the
-          maintainer identity above.
-        </p>
-        <div id="maintainer-keys-list"></div>
-        <div class="btn-row" style="margin-top:.75rem">
-          <button class="btn" onclick="maintainerLoadKeys()">↻ Refresh</button>
-          <button class="btn secondary" onclick="maintainerGenKey()">Generate New Key</button>
+      <!-- GPG Keys panel -->
+      <div id="maintainer-keys-panel" class="card" style="display:none">
+        <h3 id="maintainer-keys-title">GPG Keys</h3>
+        <div id="maintainer-keys-list" style="margin-bottom:.75rem"></div>
+        <div class="btn-row">
+          <button class="btn" onclick="maintainerGenKey()">Generate Key</button>
           <button class="btn secondary" onclick="maintainerExportPubKey()">Export Public Key</button>
-        </div>
-      </div>
-
-      <!-- Repo Signing -->
-      <div class="card">
-        <h3>Repository Signing</h3>
-        <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.75rem">
-          Sign or re-sign local APT repositories with the maintainer's GPG key.
-        </p>
-        <div id="maintainer-repos-list"></div>
-        <div class="btn-row" style="margin-top:.75rem">
-          <button class="btn" onclick="maintainerLoadRepos()">↻ Refresh</button>
-          <button class="btn" onclick="maintainerSignAllRepos()">Sign All Repos</button>
+          <button class="btn secondary" onclick="_maintainerRefreshKeys()">↻ Refresh</button>
         </div>
       </div>
 

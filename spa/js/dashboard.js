@@ -76,25 +76,26 @@ async function vmLoad() {
       case 'create_failed':
         actions += `<button class="btn" onclick="vmRetryCreate('${vm.name}')">↺ Create</button> `;
         actions += `<button class="btn secondary" onclick="vmViewLog('${vm.name}','${vm.path}')">📋 Log</button> `;
-        actions += `<button class="btn danger" onclick="vmDelete('${vm.name}')">✕ Remove</button>`;
+        actions += `<button class="btn danger" onclick="vmDestroy('${vm.name}')">✕ Destroy</button>`;
         break;
       case 'creating':
         actions += `<button class="btn secondary" onclick="vmViewLog('${vm.name}','${vm.path}')">📋 View Log</button> `;
-        actions += `<button class="btn danger" onclick="vmStop('${vm.name}')">⏹ Abort</button>`;
+        actions += `<button class="btn danger" onclick="vmDestroy('${vm.name}')">✕ Destroy</button>`;
         break;
       case 'stopped':
         actions += `<button class="btn" onclick="vmStart('${vm.name}')">▶ Start</button> `;
         actions += `<button class="btn secondary" onclick="vmViewLog('${vm.name}','${vm.path}')">📋 Log</button> `;
-        actions += `<button class="btn danger" onclick="vmDelete('${vm.name}')">✕ Remove</button>`;
+        actions += `<button class="btn danger" onclick="vmDestroy('${vm.name}')">✕ Destroy</button>`;
         break;
       case 'starting':
         actions += `<button class="btn secondary" onclick="vmViewLog('${vm.name}','${vm.path}')">📋 Log</button> `;
-        actions += `<button class="btn danger" onclick="vmStop('${vm.name}')">⏹ Stop</button>`;
+        actions += `<button class="btn danger" onclick="vmDestroy('${vm.name}')">✕ Destroy</button>`;
         break;
       case 'running':
         actions += `<button class="btn secondary" onclick="vmElbeStatus('${vm.name}','${vm.path}')">Status</button> `;
         actions += `<button class="btn secondary" onclick="vmViewLog('${vm.name}','${vm.path}')">📋 Log</button> `;
-        actions += `<button class="btn danger" onclick="vmStop('${vm.name}')">⏹ Stop</button>`;
+        actions += `<button class="btn secondary" onclick="vmStop('${vm.name}')">⏹ Stop</button> `;
+        actions += `<button class="btn danger" onclick="vmDestroy('${vm.name}')">✕ Destroy</button>`;
         break;
     }
 
@@ -260,6 +261,15 @@ async function vmStop(name) {
 
   if (d.returncode === 0) toast(`VM '${name}' stopped`, 'success');
   else toast(`Failed to stop VM '${name}'`, 'error');
+  vmLoad();
+}
+
+async function vmDestroy(name) {
+  if (!confirm(`Destroy VM '${name}'?\n\nThis will stop QEMU (if running) and permanently delete the VM directory.`)) return;
+  toast(`Destroying VM '${name}'…`, 'info', 4000);
+  const d = await api(`/api/initvms/${name}/destroy`, { method: 'POST' });
+  if (d.destroyed) toast(`VM '${name}' destroyed`, 'success');
+  else toast(d.detail || `Failed to destroy VM '${name}'`, 'error');
   vmLoad();
 }
 

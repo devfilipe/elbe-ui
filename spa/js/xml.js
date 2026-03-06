@@ -48,21 +48,30 @@ async function xmlSave() {
 
 async function xmlValidateEditor() {
   const path = document.getElementById('xml-editor-path').value;
-  await xmlValidate(path);
+  await xmlValidate(path, document.getElementById('xml-editor-output'));
 }
 
-async function xmlValidate(path) {
+async function xmlValidate(path, outputEl) {
+  const out = outputEl
+    || document.getElementById('xml-validate-output')
+    || document.getElementById('xml-editor-output');
+  if (out) { out.style.display = 'block'; out.style.color = ''; out.textContent = `Validating ${path}…`; }
+
   const d = await api('/api/xml/validate', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
   });
-  const out = document.getElementById('xml-editor-output') || document.getElementById('xml-validate-output');
+
   if (out) {
-    out.style.display = 'block';
-    out.textContent = d.returncode === 0
-      ? '✓ Validation passed\n' + (d.stdout || '')
-      : '✗ Validation errors:\n' + (d.stderr || d.stdout || '');
+    const ok = d.returncode === 0;
+    const detail = ((d.stdout || '') + (d.stderr || '')).trim();
+    out.textContent = ok
+      ? `✓ ${path}\n\nValidation passed — no errors found.`
+      : `✗ ${path}\n\nValidation errors:\n${detail || '(no output)'}`;
+    out.style.color = ok ? 'var(--ok)' : 'var(--err)';
+    out.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
+
   if (d.returncode === 0) toast('XML is valid', 'success');
   else toast('Validation errors found', 'error');
 }

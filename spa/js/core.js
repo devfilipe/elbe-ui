@@ -49,7 +49,7 @@ function navigateTo(page) {
   if (page === 'packages') loadPackages();
   if (page === 'settings') loadSettings();
   if (page === 'apt-repo') loadAptRepo();
-  if (page === 'maintainer') maintainerLoad();
+  if (page === 'maintainer') loadMaintainers();
   if (page === 'simulators') simLoad();
 }
 

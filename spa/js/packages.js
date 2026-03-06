@@ -6,9 +6,15 @@
 let _pkgActionsName = '';
 
 async function loadPackages() {
-  const d = await api('/api/packages');
+  const [d, reposD] = await Promise.all([api('/api/packages'), api('/api/apt-repos')]);
   const el = document.getElementById('packages-list');
   if (!el) return;
+
+  // Build set of .deb filenames present in any apt repo
+  const inRepo = new Set();
+  for (const r of (reposD.repos || [])) {
+    for (const pkg of (r.packages || [])) inRepo.add(pkg.name);
+  }
 
   const packages = d.packages || [];
   if (!packages.length) {
@@ -32,12 +38,15 @@ async function loadPackages() {
       status += '<span class="badge err">No debian/</span>';
     }
 
-    // .deb files
+    // .deb files + repo presence indicator
     let debInfo = '—';
     if (p.deb_files && p.deb_files.length) {
       debInfo = p.deb_files.map(d => {
         const sizeKB = (d.size / 1024).toFixed(1);
-        return `<span style="font-family:monospace;font-size:.78rem">${d.name}</span> <span style="color:var(--text-dim)">(${sizeKB} KB)</span>`;
+        const repoBadge = inRepo.has(d.name)
+          ? '<span class="badge ok" style="font-size:.68rem;padding:1px 5px" title="Present in APT repo">in repo</span>'
+          : '<span class="badge dim" style="font-size:.68rem;padding:1px 5px" title="Not yet added to APT repo">not in repo</span>';
+        return `<span style="font-family:monospace;font-size:.78rem">${d.name}</span> <span style="color:var(--text-dim)">(${sizeKB} KB)</span> ${repoBadge}`;
       }).join('<br>');
     }
 
@@ -76,6 +85,24 @@ function packageShowActions(name) {
   packageLoadRepoOptions();
   packageLoadDebianFiles();
   packageLoadDist();
+  packageLoadMaintainerOptions(name);
+}
+
+async function packageLoadMaintainerOptions(pkgName) {
+  const [maintD, pkgMaintD] = await Promise.all([
+    api('/api/maintainers'),
+    api(`/api/packages/${encodeURIComponent(pkgName)}/maintainer`),
+  ]);
+  const sel = document.getElementById('packages-maintainer-select');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— select a maintainer —</option>';
+  (maintD.maintainers || []).forEach((m, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = `${m.name} <${m.email}>`;
+    if (i === pkgMaintD.maintainer_index) opt.selected = true;
+    sel.appendChild(opt);
+  });
 }
 
 /* ---------- Build .deb ---------- */
@@ -83,13 +110,18 @@ function packageShowActions(name) {
 async function packageBuildDeb() {
   const name = document.getElementById('packages-actions-name').value;
   if (!name) return;
+
+  const miRaw = document.getElementById('packages-maintainer-select').value;
+  if (!miRaw) { toast('Select a maintainer before building', 'error'); return; }
+  const maintainer_index = parseInt(miRaw, 10);
+
   show('packages-output', `Building .deb for ${name}…`);
   toast('Building package… this may take a moment.', 'info', 5000);
 
   const d = await api('/api/packages/build-deb', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ package_name: name }),
+    body: JSON.stringify({ package_name: name, maintainer_index }),
   });
 
   show('packages-output', d);
