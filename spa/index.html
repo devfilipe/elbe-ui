@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ELBE UI</title>
+  <link rel="stylesheet" href="css/style.css?v=1">
+</head>
+<body>
+<div class="app">
+
+  <!-- ================================================================ -->
+  <!-- SIDEBAR                                                          -->
+  <!-- ================================================================ -->
+  <nav class="sidebar">
+    <h2>⚙ ELBE UI</h2>
+    <button class="active" data-page="dashboard"><span class="icon">◉</span> Dashboard</button>
+    <button data-page="projects"><span class="icon">▦</span> Projects</button>
+    <button data-page="submit"><span class="icon">▶</span> Submit Build</button>
+    <div class="sep"></div>
+    <button data-page="xml"><span class="icon">⟨⟩</span> Projects</button>
+    <button data-page="sources"><span class="icon">❴❵</span> Sources</button>
+    <button data-page="packages"><span class="icon">⬢</span> Packages</button>
+    <button data-page="builds"><span class="icon">⬡</span> Local Builds</button>
+    <button data-page="simulators"><span class="icon">▷</span> Simulators</button>
+    <button data-page="apt-repo"><span class="icon">≡</span> APT Repos</button>
+    <div class="sep"></div>
+    <button data-page="maintainer"><span class="icon">⊕</span> Maintainer</button>
+    <button data-page="settings"><span class="icon">⚙</span> Settings</button>
+    <div class="sep"></div>
+    <button data-page="workflow"><span class="icon">⟳</span> ELBE Workflow</button>
+    <button data-page="about"><span class="icon">ℹ</span> About</button>
+  </nav>
+
+  <div class="main">
+
+    <!-- ============================================================== -->
+    <!-- DASHBOARD                                                       -->
+    <!-- ============================================================== -->
+    <div id="dashboard" class="page active">
+      <h2 class="page-title">Dashboard</h2>
+
+      <!-- VM list -->
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
+          <h3 style="margin:0">InitVM Instances
+            <span class="help-tip">?<span class="help-tip-text">
+              Each VM is a QEMU-backed Debian virtual machine running the ELBE build daemon.<br><br>
+              <b>Start</b> — boot the QEMU process and set it as the active VM for builds.<br>
+              <b>Stop</b> — shut down the QEMU process.<br>
+              <b>Remove</b> — permanently delete the VM directory (only when stopped).<br><br>
+              The active VM (last started) is used by the Submit and Projects pages.
+            </span></span>
+          </h3>
+          <div class="btn-row">
+            <button class="btn secondary" onclick="vmLoad()">↻ Refresh</button>
+            <button id="vm-new-btn" class="btn" onclick="vmShowCreate()">+ New VM</button>
+          </div>
+        </div>
+        <div id="vm-list">Loading…</div>
+      </div>
+
+      <!-- Create VM form -->
+      <div id="vm-create-form" class="card" style="display:none">
+        <h3>Create New VM</h3>
+        <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.75rem">
+          Creates an ELBE initvm in the VMs base directory. Takes 15–30 minutes.
+        </p>
+        <div class="field-row">
+          <div class="field">
+            <label>VM name</label>
+            <input type="text" id="vm-create-name" value="initvm" placeholder="initvm">
+          </div>
+          <div class="field">
+            <label>SOAP port <span style="color:var(--text-dim);font-size:.78rem">(auto-assigned if blank)</span></label>
+            <input type="text" id="vm-create-port" placeholder="7587">
+          </div>
+        </div>
+        <div class="btn-row" style="margin-top:.75rem">
+          <button class="btn" onclick="vmCreate()">Create VM</button>
+          <button class="btn secondary" onclick="document.getElementById('vm-create-form').style.display='none'">Cancel</button>
+        </div>
+      </div>
+
+      <div id="vm-action-output" class="output" style="display:none"></div>
+
+      <!-- Command log panel -->
+      <div id="dashboard-log" class="card" style="display:none; margin-top:1rem">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <h3 style="margin:0">Command Log</h3>
+          <button class="btn secondary" style="font-size:.7rem;padding:.15rem .5rem" onclick="dashboardCloseLog()">✕ Close</button>
+        </div>
+        <pre id="dashboard-log-content" style="margin-top:.5rem;max-height:20rem;overflow:auto;font-size:.78rem;white-space:pre-wrap;background:var(--bg);padding:.5rem .75rem;border-radius:var(--radius);border:1px solid var(--border)"></pre>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- PROJECTS                                                        -->
+    <!-- ============================================================== -->
+    <div id="projects" class="page">
+      <h2 class="page-title">Projects</h2>
+
+      <div class="card">
+        <h3>ELBE Daemon Projects
+          <span class="help-tip">?<span class="help-tip-text">
+            Projects managed by the ELBE SOAP daemon running inside the initvm.<br><br>
+            <b>Create</b> — register a new empty project slot in the daemon.<br>
+            <b>Set XML</b> — assign an ELBE XML file to configure the build.<br>
+            <b>Build</b> — trigger a build inside the initvm (image generation).<br>
+            <b>Files</b> — list the build output files stored in the initvm.<br>
+            <b>↓ All</b> — download all output files to your local workspace.<br>
+            <b>Del</b> — remove the project from the daemon.<br><br>
+            ⚡ For a simpler one-click flow, use <b>Submit Build</b> instead — it does Create → Set XML → Build → Download automatically.
+          </span></span>
+        </h3>
+        <div class="btn-row">
+          <button class="btn" onclick="loadProjects()">↻ Refresh</button>
+          <button class="btn secondary" onclick="createProject()">+ Create</button>
+          <button class="btn danger" onclick="deleteAllProjects()">Delete All</button>
+          <button class="btn danger" onclick="purgeAllProjects()" title="Reset + delete all projects, including busy ones">⚠ Purge All</button>
+        </div>
+        <table>
+          <thead><tr><th>Build Dir</th><th>Name</th><th>Version</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="projects-tbody"></tbody>
+        </table>
+      </div>
+      <div id="projects-output-panel" style="display:none;margin-top:.75rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.3rem">
+          <span style="font-size:.78rem;color:var(--text-dim)" id="projects-output-label">Output</span>
+          <button class="btn secondary" style="font-size:.7rem;padding:.15rem .5rem"
+            onclick="document.getElementById('projects-output-panel').style.display='none'">✕ Close</button>
+        </div>
+        <div id="projects-output" class="output"></div>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- SUBMIT BUILD                                                    -->
+    <!-- ============================================================== -->
+    <div id="submit" class="page">
+      <h2 class="page-title">Submit Build</h2>
+
+      <div class="card">
+        <h3>Upload &amp; Submit XML
+          <span class="help-tip">?<span class="help-tip-text">
+            One-click build: select an ELBE XML project file and submit it to the initvm.<br><br>
+            This automatically creates a project, uploads the XML, runs the build, and downloads the output files when done.<br><br>
+            Track progress in the <b>Local Builds</b> tab.
+          </span></span>
+        </h3>
+
+        <div class="field">
+          <label>Select XML file:</label>
+          <div style="display:flex;gap:.4rem">
+            <select id="submit-xml-select" style="flex:1"><option value="">-- click Load to populate --</option></select>
+            <button class="btn secondary" onclick="loadSubmitXmlOptions()">Load</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Or upload a new file:</label>
+          <input type="file" id="submit-xml-file" accept=".xml">
+        </div>
+
+        <div class="field" style="display:flex;gap:1rem;align-items:center">
+          <label style="display:inline;margin:0"><input type="checkbox" id="submit-bin"> Build binary CDROM</label>
+          <label style="display:inline;margin:0"><input type="checkbox" id="submit-src"> Build source CDROM</label>
+        </div>
+
+        <button class="btn" onclick="submitBuild()">Submit Build</button>
+      </div>
+      <div id="submit-output" class="output" style="display:none"></div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- PROJECTS (XML FILES)                                            -->
+    <!-- ============================================================== -->
+    <div id="xml" class="page">
+      <h2 class="page-title">ELBE Projects</h2>
+
+      <div class="card">
+        <h3>Available Projects</h3>
+        <div class="btn-row">
+          <button class="btn" onclick="loadXmlPage()">↻ Refresh</button>
+          <button class="btn secondary" onclick="xmlNewFile()">+ New XML</button>
+        </div>
+        <div id="xml-list"></div>
+      </div>
+
+      <!-- Inline editor (hidden by default) -->
+      <div id="xml-editor-section" class="card" style="display:none">
+        <h3>Edit XML</h3>
+        <div class="field">
+          <label>File path:</label>
+          <input type="text" id="xml-editor-path" readonly>
+        </div>
+        <div class="field">
+          <label>Content:</label>
+          <textarea id="xml-editor-textarea" rows="20"></textarea>
+        </div>
+        <div class="btn-row">
+          <button class="btn" onclick="xmlSave()">Save</button>
+          <button class="btn secondary" onclick="xmlValidateEditor()">Validate</button>
+          <button class="btn secondary" onclick="document.getElementById('xml-editor-section').style.display='none'">Close</button>
+        </div>
+        <div id="xml-editor-output" class="output" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- SOURCES                                                         -->
+    <!-- ============================================================== -->
+    <div id="sources" class="page">
+      <h2 class="page-title">Sources</h2>
+
+      <div class="card">
+        <h3>Source Projects
+          <span class="help-tip">?<span class="help-tip-text">
+            Application source code found under the <b>sources/</b> directory.<br><br>
+            Each folder here is a buildable application (e.g. a C project with a Makefile).<br>
+            Use <b>Create Package</b> to generate a <code>debian/</code> skeleton so it can be built as a .deb package.
+          </span></span>
+        </h3>
+        <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.75rem">
+          Application source code repositories found under the sources directory.
+        </p>
+        <div class="btn-row">
+          <button class="btn" onclick="loadSources()">↻ Refresh</button>
+        </div>
+        <div id="sources-list"></div>
+      </div>
+
+      <!-- Create package template form (hidden by default) -->
+      <div id="sources-create-pkg" class="card" style="display:none">
+        <h3>Create Debian Package Template</h3>
+        <input type="hidden" id="sources-create-src-name">
+        <div class="field-row">
+          <div class="field">
+            <label>Package name</label>
+            <input type="text" id="sources-create-pkg-name" placeholder="e.g. elbe-demo-pkg-hello">
+          </div>
+          <div class="field">
+            <label>Version</label>
+            <input type="text" id="sources-create-pkg-version" value="1.0.0">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Description</label>
+            <input type="text" id="sources-create-pkg-desc" placeholder="Short description">
+          </div>
+          <div class="field">
+            <label>Architecture</label>
+            <select id="sources-create-pkg-arch">
+              <option value="amd64">amd64</option>
+              <option value="arm64">arm64</option>
+              <option value="armhf">armhf</option>
+              <option value="any">any</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Maintainer</label>
+          <input type="text" id="sources-create-pkg-maintainer" value="ELBE Demo <elbe-demo@local>">
+        </div>
+        <div class="btn-row">
+          <button class="btn" onclick="sourcesCreatePackage()">Create Package</button>
+          <button class="btn secondary" onclick="document.getElementById('sources-create-pkg').style.display='none'">Cancel</button>
+        </div>
+      </div>
+
+      <div id="sources-output" class="output" style="display:none"></div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- PACKAGES                                                        -->
+    <!-- ============================================================== -->
+    <div id="packages" class="page">
+      <h2 class="page-title">Packages</h2>
+
+      <div class="card">
+        <h3>Debian Packages
+          <span class="help-tip">?<span class="help-tip-text">
+            Package definitions found under the <b>packages/</b> directory.<br><br>
+            Each package has a <code>debian/</code> directory with control, changelog, and rules files.<br>
+            <b>Build .deb</b> — compile and produce .deb + source packages in <code>dist/</code>.<br>
+            <b>Add to APT Repo</b> — copy the built .deb into a local APT repository.<br>
+            <b>Clean</b> — remove build artefacts.
+          </span></span>
+        </h3>
+        <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.75rem">
+          Debian package definitions found under the packages directory.
+        </p>
+        <div class="btn-row">
+          <button class="btn" onclick="loadPackages()">↻ Refresh</button>
+        </div>
+        <div id="packages-list"></div>
+      </div>
+
+      <!-- Build / Repo / XML actions (shown per-package) -->
+      <div id="packages-actions" class="card" style="display:none">
+        <h3 id="packages-actions-title">Package Actions</h3>
+        <input type="hidden" id="packages-actions-name">
+
+        <div class="btn-row">
+          <button class="btn" onclick="packageBuildDeb()">Build .deb</button>
+          <button class="btn danger" onclick="packageClean()">Clean</button>
+          <button class="btn secondary" onclick="packageAddToRepo()">Add to APT Repo</button>
+        </div>
+
+        <!-- Debian files editor -->
+        <details id="packages-debian-details" class="section-collapse" open>
+          <summary>
+            debian/ Files
+            <span id="packages-debian-count" class="badge" style="font-size:.7rem"></span>
+            <button class="btn secondary" style="font-size:.72rem;padding:.15rem .4rem" onclick="event.preventDefault();packageLoadDebianFiles()">↻</button>
+          </summary>
+          <div class="section-collapse-body">
+            <div id="packages-debian-files" style="font-size:.82rem;color:var(--text-dim)">
+              <em>Loading…</em>
+            </div>
+            <div id="packages-debian-editor" style="display:none;margin-top:.5rem">
+              <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.3rem">
+                <strong id="packages-debian-editor-title" style="font-family:monospace;font-size:.82rem"></strong>
+                <button class="btn" style="font-size:.72rem;padding:.15rem .5rem" onclick="packageSaveDebianFile()">Save</button>
+                <button class="btn secondary" style="font-size:.72rem;padding:.15rem .5rem" onclick="document.getElementById('packages-debian-editor').style.display='none'">Close</button>
+              </div>
+              <textarea id="packages-debian-editor-content" style="width:100%;min-height:200px;font-family:monospace;font-size:.78rem;background:var(--bg-card);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:.5rem;resize:vertical"></textarea>
+            </div>
+          </div>
+        </details>
+
+        <!-- dist/ files -->
+        <details id="packages-dist-details" class="section-collapse">
+          <summary>
+            dist/ Files
+            <span id="packages-dist-count" class="badge" style="font-size:.7rem"></span>
+            <button class="btn secondary" style="font-size:.72rem;padding:.15rem .4rem" onclick="event.preventDefault();packageLoadDist()">↻</button>
+          </summary>
+          <div class="section-collapse-body">
+            <div id="packages-dist-files" style="font-size:.82rem;color:var(--text-dim)">
+              <em>Loading…</em>
+            </div>
+          </div>
+        </details>
+
+        <!-- Add/Remove from XML project -->
+        <div style="margin-top:1rem">
+          <h3 style="margin-bottom:.5rem">Manage in ELBE Project</h3>
+          <div class="field-row">
+            <div class="field" style="flex:2">
+              <label>Select XML project:</label>
+              <div style="display:flex;gap:.4rem">
+                <select id="packages-xml-select" style="flex:1">
+                  <option value="">-- select a project --</option>
+                </select>
+                <button class="btn secondary" onclick="packageLoadXmlOptions()">Load</button>
+              </div>
+            </div>
+            <div class="field" style="flex:1">
+              <label>Select APT repo:</label>
+              <select id="packages-repo-select">
+                <option value="0">-- default repo --</option>
+              </select>
+            </div>
+          </div>
+          <div id="packages-xml-pkglist" style="margin:.5rem 0;font-size:.82rem;color:var(--text-dim)"></div>
+          <div class="btn-row">
+            <button class="btn" onclick="packageAddToXml()">Add to Project</button>
+            <button class="btn danger" onclick="packageRemoveFromXml()">Remove from Project</button>
+          </div>
+        </div>
+
+        <div class="btn-row" style="margin-top:.75rem">
+          <button class="btn secondary" onclick="document.getElementById('packages-actions').style.display='none'">Close</button>
+        </div>
+      </div>
+
+      <div id="packages-output" class="output" style="display:none"></div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- LOCAL BUILDS                                                    -->
+    <!-- ============================================================== -->
+    <div id="builds" class="page">
+      <h2 class="page-title">Local Builds</h2>
+
+      <!-- Active / Recent Submit Jobs -->
+      <div class="card">
+        <h3>Submit Jobs
+          <span class="help-tip">?<span class="help-tip-text">
+            Background build jobs submitted via <b>Submit Build</b>.<br><br>
+            Each job runs <code>elbe initvm submit</code> in the background.<br>
+            <b>Log</b> — stream the live build output.<br>
+            <b>↓ Files</b> — recover build artefacts from the initvm (useful if build failed partially).<br>
+            <b>🧹 Cleanup</b> — delete the project from the initvm after recovering files.
+          </span></span>
+        </h3>
+        <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.75rem">
+          Track running and completed <code>elbe submit</code> processes.
+        </p>
+        <div class="btn-row">
+          <button class="btn" onclick="buildsLoadJobs()">↻ Refresh</button>
+        </div>
+        <div id="builds-jobs-list" style="margin-top:.75rem"></div>
+      </div>
+
+      <!-- Job Log Viewer (hidden by default) -->
+      <div id="builds-log-viewer" class="card" style="display:none">
+        <h3>Build Log: <span id="builds-log-title"></span></h3>
+        <div class="btn-row">
+          <button class="btn secondary" onclick="buildsRefreshLog()">↻ Refresh Log</button>
+          <label style="display:inline;margin:0;font-size:.82rem">
+            <input type="checkbox" id="builds-log-autoscroll" checked> Auto-scroll
+          </label>
+        </div>
+        <pre id="builds-log-content" style="max-height:400px;overflow:auto;background:var(--card);border:1px solid var(--border);padding:.5rem;font-size:.75rem;white-space:pre-wrap;margin-top:.5rem"></pre>
+        <input type="hidden" id="builds-log-jobid">
+        <div class="btn-row" style="margin-top:.5rem">
+          <button class="btn secondary" onclick="document.getElementById('builds-log-viewer').style.display='none'; buildsStopAutoLog();">Close</button>
+        </div>
+      </div>
+
+      <!-- Build Outputs -->
+      <div class="card">
+        <h3>Build Outputs
+          <span class="help-tip">?<span class="help-tip-text">
+            Directories containing the output files from completed builds.<br><br>
+            Each build creates a folder under <code>builds/</code> with disk images, logs, and other artefacts produced by ELBE.
+          </span></span>
+        </h3>
+        <div class="btn-row">
+          <button class="btn" onclick="buildsLoadOutputs()">↻ Refresh</button>
+        </div>
+        <div id="builds-list" style="margin-top:.75rem"></div>
+      </div>
+
+      <!-- File Viewer (hidden by default) -->
+      <div id="builds-file-viewer" class="card" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <h3 id="builds-file-viewer-title" style="margin:0;font-family:monospace;font-size:.85rem"></h3>
+          <button class="btn secondary" onclick="buildsCloseFileViewer()" style="font-size:.78rem;padding:2px 8px">✕ Close</button>
+        </div>
+        <pre id="builds-file-viewer-content" style="margin-top:.5rem;max-height:600px;overflow:auto;background:var(--bg);border:1px solid var(--border);padding:.75rem;font-size:.75rem;font-family:'Cascadia Code','Fira Code',monospace;white-space:pre-wrap;word-break:break-word;line-height:1.4"></pre>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- SIMULATORS                                                      -->
+    <!-- ============================================================== -->
+    <div id="simulators" class="page">
+      <h2 class="page-title">Simulators</h2>
+
+      <!-- Simulator list -->
+      <div class="card">
+        <h3>QEMU Simulators</h3>
+        <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.75rem">
+          Configure and run QEMU virtual machines using images from Local Builds.
+        </p>
+        <div class="btn-row">
+          <button class="btn" onclick="simLoad()">↻ Refresh</button>
+          <button class="btn secondary" onclick="simShowCreate()">+ New Simulator</button>
+        </div>
+        <div id="sim-list" style="margin-top:.75rem"></div>
+      </div>
+
+      <!-- Create / Edit form (hidden by default) -->
+      <div id="sim-form" class="card" style="display:none">
+        <h3 id="sim-form-title">New Simulator</h3>
+        <input type="hidden" id="sim-form-id" value="">
+        <div class="field-row">
+          <div class="field">
+            <label>Name</label>
+            <input type="text" id="sim-name" placeholder="e.g. x86_64-bookworm">
+          </div>
+          <div class="field">
+            <label>QEMU binary</label>
+            <input type="text" id="sim-qemu-bin" placeholder="qemu-system-x86_64 (from settings)">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Memory (MB)</label>
+            <input type="text" id="sim-memory" value="1024">
+          </div>
+          <div class="field">
+            <label>VNC display (e.g. :1)</label>
+            <input type="text" id="sim-vnc" placeholder="(empty = serial only)">
+          </div>
+        </div>
+        <div class="field">
+          <label>Disk image</label>
+          <div style="display:flex;gap:.4rem">
+            <select id="sim-image" style="flex:1">
+              <option value="">-- load images first --</option>
+            </select>
+            <button class="btn secondary" onclick="simLoadImages()">Load</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Extra QEMU arguments</label>
+          <input type="text" id="sim-extra-args" placeholder="e.g. -enable-kvm -cpu host">
+        </div>
+        <div class="field" style="display:flex;gap:1rem;align-items:center">
+          <label style="display:inline;margin:0"><input type="checkbox" id="sim-serial" checked> Serial console (-nographic)</label>
+        </div>
+        <div class="btn-row">
+          <button class="btn" onclick="simSave()">Save</button>
+          <button class="btn secondary" onclick="document.getElementById('sim-form').style.display='none'">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Console viewer -->
+      <div id="sim-console" class="card" style="display:none">
+        <h3>Console: <span id="sim-console-title"></span></h3>
+        <pre id="sim-console-output" style="max-height:500px;overflow:auto;background:#1a1a2e;color:#0f0;border:1px solid var(--border);padding:.75rem;font-size:.78rem;font-family:'Cascadia Code',monospace;white-space:pre-wrap;min-height:200px"></pre>
+        <div style="display:flex;gap:.4rem;margin-top:.5rem">
+          <input type="text" id="sim-console-input" placeholder="Type command and press Enter…"
+            style="flex:1;font-family:monospace;font-size:.85rem"
+            onkeydown="if(event.key==='Enter'){simSendInput();event.preventDefault();}">
+          <button class="btn" onclick="simSendInput()">Send</button>
+        </div>
+        <div style="display:flex;gap:.3rem;margin-top:.35rem;flex-wrap:wrap">
+          <span style="font-size:.72rem;color:var(--text-dim);align-self:center">Keys:</span>
+          <button class="btn secondary" onclick="simSendKey('\n')" style="font-size:.72rem;padding:1px 8px" title="Enter / Return">⏎ Enter</button>
+          <button class="btn secondary" onclick="simSendKey('\x1b[A')" style="font-size:.72rem;padding:1px 6px" title="Arrow Up">↑</button>
+          <button class="btn secondary" onclick="simSendKey('\x1b[B')" style="font-size:.72rem;padding:1px 6px" title="Arrow Down">↓</button>
+          <button class="btn secondary" onclick="simSendKey('\x1b')" style="font-size:.72rem;padding:1px 8px" title="Escape key">Esc</button>
+          <button class="btn secondary" onclick="simSendKey('\t')" style="font-size:.72rem;padding:1px 8px" title="Tab key">Tab</button>
+          <button class="btn secondary" onclick="simSendKey('\x03')" style="font-size:.72rem;padding:1px 8px" title="Ctrl+C (interrupt)">Ctrl+C</button>
+          <button class="btn secondary" onclick="simSendKey('\x04')" style="font-size:.72rem;padding:1px 8px" title="Ctrl+D (EOF)">Ctrl+D</button>
+        </div>
+        <input type="hidden" id="sim-console-id">
+        <div class="btn-row" style="margin-top:.5rem">
+          <button class="btn secondary" onclick="simRefreshConsole()">↻ Refresh</button>
+          <button class="btn danger" onclick="simStop(document.getElementById('sim-console-id').value)" title="Send SIGTERM to QEMU">⏹ Stop</button>
+          <button class="btn danger" onclick="simForceKill(document.getElementById('sim-console-id').value)" title="Force SIGKILL — use if Stop doesn't work" style="font-size:.78rem">💀 Kill</button>
+          <button class="btn secondary" onclick="document.getElementById('sim-console').style.display='none'; simStopAutoConsole();">Close</button>
+        </div>
+      </div>
+
+      <div id="sim-output" class="output" style="display:none"></div>
+    </div>
+
+
+    <!-- ============================================================== -->
+    <!-- APT REPOSITORIES                                               -->
+    <!-- ============================================================== -->
+    <div id="apt-repo" class="page">
+      <h2 class="page-title">APT Repositories</h2>
+
+      <!-- Repository list -->
+      <div class="card">
+        <h3>Configured Repositories</h3>
+        <div class="btn-row">
+          <button class="btn" onclick="loadAptRepos()">↻ Refresh</button>
+          <button class="btn secondary" onclick="aptRepoShowAdd()">+ Add Repository</button>
+        </div>
+        <div id="apt-repos-list"></div>
+      </div>
+
+      <!-- Add / Edit form (hidden by default) -->
+      <div id="apt-repo-form" class="card" style="display:none">
+        <h3 id="apt-repo-form-title">Add Repository</h3>
+        <input type="hidden" id="apt-repo-edit-index" value="-1">
+        <div class="field-row">
+          <div class="field">
+            <label>Label</label>
+            <input type="text" id="apt-repo-label" placeholder="e.g. ELBE Demo Local">
+          </div>
+          <div class="field">
+            <label>Type</label>
+            <select id="apt-repo-type">
+              <option value="deb">deb (binary)</option>
+              <option value="deb-src">deb-src (source)</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>URI</label>
+          <input type="text" id="apt-repo-uri" placeholder="http://deb.debian.org/debian or file:///opt/repo">
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Suite</label>
+            <input type="text" id="apt-repo-suite" placeholder="./ or bookworm or stable">
+          </div>
+          <div class="field">
+            <label>Components</label>
+            <input type="text" id="apt-repo-components" placeholder="main contrib non-free (empty for flat)">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Architecture filter</label>
+            <input type="text" id="apt-repo-arch" placeholder="amd64, arm64… (empty = all)">
+          </div>
+          <div class="field">
+            <label>Signed-by (GPG keyring path)</label>
+            <input type="text" id="apt-repo-signed-by" placeholder="/usr/share/keyrings/repo.gpg">
+          </div>
+        </div>
+        <div class="field">
+          <label>Local directory (for manage: gen-keys, rebuild, upload)</label>
+          <input type="text" id="apt-repo-local-dir" placeholder="/workspace/tools/elbe-demo-apt-repository (optional)">
+        </div>
+        <div class="field" style="display:flex;gap:1rem;align-items:center">
+          <label style="display:inline;margin:0"><input type="checkbox" id="apt-repo-trusted"> Trusted (skip GPG verification)</label>
+          <label style="display:inline;margin:0"><input type="checkbox" id="apt-repo-enabled" checked> Enabled</label>
+        </div>
+        <div class="btn-row">
+          <button class="btn" onclick="aptRepoSaveForm()">Save</button>
+          <button class="btn secondary" onclick="document.getElementById('apt-repo-form').style.display='none'">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Per-repo details (packages, actions) – shown on expand -->
+      <div id="apt-repo-detail" class="card" style="display:none">
+        <h3 id="apt-repo-detail-title">Repository Details</h3>
+        <div id="apt-repo-detail-status"></div>
+        <div class="btn-row" style="margin-top:.75rem">
+          <button class="btn secondary" onclick="aptRepoDetailGenKeys()">Generate GPG Keys</button>
+          <button class="btn secondary" onclick="aptRepoDetailRebuild()">Rebuild Index</button>
+        </div>
+        <div class="field" style="margin-top:.75rem">
+          <label>Upload .deb package:</label>
+          <div style="display:flex;gap:.4rem">
+            <input type="file" id="apt-repo-detail-upload" accept=".deb" style="flex:1">
+            <button class="btn" onclick="aptRepoDetailUpload()">Upload</button>
+          </div>
+        </div>
+        <h3 style="margin-top:1rem">Packages</h3>
+        <div id="apt-repo-detail-packages"></div>
+        <div class="btn-row" style="margin-top:.75rem">
+          <button class="btn secondary" onclick="document.getElementById('apt-repo-detail').style.display='none'">Close</button>
+        </div>
+      </div>
+
+      <!-- Generated APT line / ELBE XML -->
+      <div id="apt-repo-snippet" class="card" style="display:none">
+        <h3>Generated Snippet</h3>
+        <div class="field">
+          <label>sources.list line:</label>
+          <textarea id="apt-repo-snippet-apt" rows="2" readonly style="min-height:auto"></textarea>
+        </div>
+        <div class="field">
+          <label>ELBE XML &lt;url&gt; block:</label>
+          <textarea id="apt-repo-snippet-xml" rows="4" readonly style="min-height:auto"></textarea>
+        </div>
+        <button class="btn secondary" onclick="document.getElementById('apt-repo-snippet').style.display='none'">Close</button>
+      </div>
+
+      <div id="apt-repo-output" class="output" style="display:none"></div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- MAINTAINER                                                      -->
+    <!-- ============================================================== -->
+    <div id="maintainer" class="page">
+      <h2 class="page-title">Maintainer</h2>
+
+      <!-- Identity -->
+      <div class="card">
+        <h3>Identity</h3>
+        <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.75rem">
+          Maintainer information used in <code>debian/control</code>,
+          <code>debian/changelog</code>, GPG key generation, and APT repository metadata.
+        </p>
+        <div class="field-row">
+          <div class="field">
+            <label>Full name</label>
+            <input type="text" id="maintainer-name" placeholder="e.g. Filipe Moraes">
+          </div>
+          <div class="field">
+            <label>Email</label>
+            <input type="text" id="maintainer-email" placeholder="e.g. filipe@example.com">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Organization</label>
+            <input type="text" id="maintainer-org" placeholder="e.g. ELBE Demo Project">
+          </div>
+          <div class="field">
+            <label>Formatted (auto-generated)</label>
+            <input type="text" id="maintainer-formatted" readonly
+              style="background:var(--bg);font-family:monospace;font-size:.85rem">
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn" onclick="maintainerSave()">Save Identity</button>
+          <button class="btn secondary" onclick="maintainerLoad()">↻ Reload</button>
+        </div>
+      </div>
+
+      <!-- GPG Keys -->
+      <div class="card">
+        <h3>GPG Keys</h3>
+        <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.75rem">
+          Keys used to sign APT repositories. The key is generated using the
+          maintainer identity above.
+        </p>
+        <div id="maintainer-keys-list"></div>
+        <div class="btn-row" style="margin-top:.75rem">
+          <button class="btn" onclick="maintainerLoadKeys()">↻ Refresh</button>
+          <button class="btn secondary" onclick="maintainerGenKey()">Generate New Key</button>
+          <button class="btn secondary" onclick="maintainerExportPubKey()">Export Public Key</button>
+        </div>
+      </div>
+
+      <!-- Repo Signing -->
+      <div class="card">
+        <h3>Repository Signing</h3>
+        <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.75rem">
+          Sign or re-sign local APT repositories with the maintainer's GPG key.
+        </p>
+        <div id="maintainer-repos-list"></div>
+        <div class="btn-row" style="margin-top:.75rem">
+          <button class="btn" onclick="maintainerLoadRepos()">↻ Refresh</button>
+          <button class="btn" onclick="maintainerSignAllRepos()">Sign All Repos</button>
+        </div>
+      </div>
+
+      <div id="maintainer-output" class="output" style="display:none"></div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- SETTINGS                                                        -->
+    <!-- ============================================================== -->
+    <div id="settings" class="page">
+      <h2 class="page-title">Settings</h2>
+
+      <div class="card">
+        <h3>ELBE Configuration</h3>
+        <div class="field-row">
+          <div class="field">
+            <label>ELBE binary path</label>
+            <input type="text" id="setting-elbe_bin">
+          </div>
+          <div class="field">
+            <label>VMs base directory</label>
+            <input type="text" id="setting-vms_base_dir">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>SOAP daemon host</label>
+            <input type="text" id="setting-soap_host">
+          </div>
+          <div class="field">
+            <label>Max VMs</label>
+            <input type="number" id="setting-max_vms" min="1" max="10">
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Directories</h3>
+        <div class="field-row">
+          <div class="field">
+            <label>Workspace directory</label>
+            <input type="text" id="setting-workspace_dir">
+          </div>
+          <div class="field">
+            <label>ELBE Projects directory (.xml files)</label>
+            <input type="text" id="setting-projects_dir">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Upload directory</label>
+            <input type="text" id="setting-upload_dir">
+          </div>
+          <div class="field">
+            <label>Output directory (downloads)</label>
+            <input type="text" id="setting-output_dir">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Builds directory (host-side, for images &amp; simulators)</label>
+            <input type="text" id="setting-builds_dir" placeholder="e.g. /home/user/elbe-workspace/builds">
+          </div>
+          <div class="field">
+            <label>Sources directory</label>
+            <input type="text" id="setting-sources_dir">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Packages directory</label>
+            <input type="text" id="setting-packages_dir">
+          </div>
+        </div>
+        <div class="field">
+          <label>APT repository directory</label>
+          <input type="text" id="setting-apt_repo_dir" placeholder="/workspace/tools/elbe-demo-apt-repository" disabled
+            style="opacity:.5;cursor:not-allowed"
+            title="Managed via APT Repositories (see APT Repos page)">
+          <span style="font-size:.72rem;color:var(--text-dim)">
+            ℹ APT repositories are now managed in the <a href="#" onclick="navigateTo('apt-repo');return false" style="color:var(--accent)">APT Repos</a> page.
+          </span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>QEMU Configuration</h3>
+        <div class="field-row">
+          <div class="field">
+            <label>QEMU binary path</label>
+            <input type="text" id="setting-qemu_bin">
+          </div>
+          <div class="field">
+            <label>Memory (MB)</label>
+            <input type="text" id="setting-qemu_memory">
+          </div>
+        </div>
+        <div class="field">
+          <label>Extra QEMU arguments</label>
+          <input type="text" id="setting-qemu_extra_args" placeholder="e.g. -nographic -enable-kvm">
+        </div>
+      </div>
+
+      <!-- Build Settings -->
+      <div class="card">
+        <h3>Build Settings</h3>
+        <div class="field-row">
+          <div class="field">
+            <label>Max concurrent submits</label>
+            <input type="number" id="setting-max_concurrent_submits" min="1" max="8" value="1"
+                   title="Number of elbe submit processes that can run in parallel. Default is 1.">
+          </div>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn" onclick="saveSettings()">Save Settings</button>
+        <button class="btn secondary" onclick="loadSettings()">↻ Reload</button>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- ELBE WORKFLOW                                                   -->
+    <!-- ============================================================== -->
+    <div id="workflow" class="page">
+      <h2 class="page-title">ELBE Workflow</h2>
+
+      <div class="card">
+        <h3>How ELBE Builds a Root Filesystem</h3>
+        <p style="font-size:.88rem;line-height:1.65;color:var(--text);margin-bottom:1.25rem">
+          ELBE (<em>Embedded Linux Build Environment</em>) is a tool developed by
+          <a href="https://elbe-rfs.org/" target="_blank" rel="noopener" style="color:var(--accent)">Linutronix</a>
+          for building customized Debian-based root filesystems for embedded targets.
+          It uses an <strong>XML project file</strong> as the single source of truth,
+          describing the target architecture, Debian mirror, package list, partition
+          layout, and post-install fine-tuning steps.
+        </p>
+
+        <p style="font-size:.88rem;line-height:1.65;color:var(--text);margin-bottom:1.25rem">
+          The build runs inside a dedicated QEMU virtual machine called the
+          <strong>initvm</strong>. This isolation keeps the host system clean and
+          makes cross-compilation straightforward — ELBE uses
+          <code>qemu-user-static</code> internally to run foreign-architecture
+          binaries inside the build chroot.
+        </p>
+
+        <div class="workflow-diagram-wrap">
+          <img src="assets/ELBE-process-1.png"
+               alt="ELBE build process diagram"
+               class="workflow-diagram">
+        </div>
+
+        <h3 style="margin-top:1.5rem">Build steps</h3>
+        <ol style="font-size:.88rem;line-height:1.8;color:var(--text);padding-left:1.25rem;margin-bottom:1.25rem">
+          <li><strong>elbe initvm create</strong> — provisions the initvm: installs a
+            minimal Debian system inside a QEMU disk image and starts the ELBE SOAP
+            build daemon. This step is done once.</li>
+          <li><strong>elbe initvm submit</strong> — sends the XML project file to the
+            running initvm for building. The initvm then runs the following pipeline:</li>
+          <li><strong>debootstrap</strong> — bootstraps the base Debian system inside
+            a chroot, using the configured Debian mirror.</li>
+          <li><strong>Package installation</strong> — installs the packages listed in
+            <code>&lt;pkg-list&gt;</code>, including packages from custom APT
+            repositories (e.g. the local flat repo served by this UI).</li>
+          <li><strong>copy / unpack config archive</strong> — copies files and
+            configuration archives into the chroot.</li>
+          <li><strong>finetuning</strong> — runs post-install commands inside the
+            chroot (e.g. <code>update-grub</code>, <code>systemctl enable</code>).</li>
+          <li><strong>Image generation</strong> — packages the rootfs into the
+            requested output format: tarball (<code>rootfs.tar.gz</code>), raw disk
+            image (<code>rootfs.img</code>), ISO, or UBI image.</li>
+        </ol>
+
+        <p style="font-size:.88rem;line-height:1.65;color:var(--text)">
+          In this demo project the XML files live in
+          <code>projects/elbe-demo-projects/</code> and can be submitted directly
+          from the <strong>Submit Build</strong> page. Custom packages are built
+          in the <strong>Packages</strong> page, published through the
+          <strong>APT Repos</strong> page, and referenced in the XML via the local
+          APT repository URL.
+        </p>
+      </div>
+
+      <div class="card" style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <h3 style="margin-bottom:.4rem">Official ELBE documentation</h3>
+          <p style="font-size:.85rem;color:var(--text-dim)">
+            Full documentation, XML schema reference, and community resources at
+            the ELBE project website.
+          </p>
+        </div>
+        <a href="https://elbe-rfs.org/" target="_blank" rel="noopener"
+           class="btn" style="text-decoration:none;white-space:nowrap">
+          Visit elbe-rfs.org ↗
+        </a>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- ABOUT                                                          -->
+    <!-- ============================================================== -->
+    <div id="about" class="page">
+      <h2 class="page-title">About</h2>
+
+      <div class="card">
+        <h3>elbe-ui</h3>
+        <p style="font-size:.88rem;line-height:1.65;color:var(--text);margin-bottom:.75rem">
+          A web-based management interface for
+          <a href="https://elbe-rfs.org/" target="_blank" rel="noopener" style="color:var(--accent)">ELBE</a>
+          (Embedded Linux Build Environment). Wraps the <code>elbe</code> CLI and
+          related tooling — initvm lifecycle, image builds, Debian packaging, local
+          APT repositories, and QEMU simulation — into a single browser interface.
+        </p>
+        <p style="font-size:.88rem;line-height:1.65;color:var(--text)">
+          Part of a proof-of-concept workspace that demonstrates how to build
+          customized Debian-based root filesystems for embedded targets using ELBE,
+          from source code to a bootable image.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>Version</h3>
+        <p style="font-size:1.5rem;font-weight:700;color:var(--accent);margin-bottom:.25rem">0.1.0</p>
+        <p style="font-size:.82rem;color:var(--text-dim)">Backend: Python · FastAPI &nbsp;|&nbsp; Frontend: Vanilla JS SPA</p>
+      </div>
+
+      <div class="card" style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <h3 style="margin-bottom:.4rem">Source code</h3>
+          <p style="font-size:.85rem;color:var(--text-dim)">
+            Available on GitHub under the <code>devfilipe</code> organization.
+          </p>
+        </div>
+        <a href="https://github.com/devfilipe/elbe-ui" target="_blank" rel="noopener"
+           class="btn" style="text-decoration:none;white-space:nowrap">
+          GitHub ↗
+        </a>
+      </div>
+    </div>
+
+  </div><!-- .main -->
+</div><!-- .app -->
+
+<!-- Scripts (order matters: core first, then views) -->
+<script src="js/core.js?v=1"></script>
+<script src="js/dashboard.js?v=1"></script>
+<script src="js/projects.js?v=1"></script>
+<script src="js/submit.js?v=1"></script>
+<script src="js/builds.js?v=1"></script>
+<script src="js/xml.js?v=1"></script>
+<script src="js/sources.js?v=1"></script>
+<script src="js/packages.js?v=1"></script>
+<script src="js/apt-repo.js?v=1"></script>
+<script src="js/simulators.js?v=1"></script>
+<script src="js/maintainer.js?v=1"></script>
+<script src="js/settings.js?v=1"></script>
+</body>
+</html>

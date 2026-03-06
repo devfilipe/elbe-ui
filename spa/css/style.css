@@ -1,0 +1,243 @@
+/* ==========================================================================
+   ELBE UI – Global Styles (Catppuccin-inspired dark theme)
+   ========================================================================== */
+
+:root {
+  --bg: #1e1e2e;
+  --surface: #282a3a;
+  --border: #3a3c4e;
+  --text: #cdd6f4;
+  --text-dim: #8888aa;
+  --accent: #89b4fa;
+  --green: #a6e3a1;
+  --red: #f38ba8;
+  --yellow: #f9e2af;
+  --radius: 8px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); }
+
+/* ---------- Layout ---------- */
+.app { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: 220px; min-width: 220px; background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 1rem 0; display: flex; flex-direction: column; gap: .15rem;
+}
+.sidebar h2 { padding: 0 1rem .75rem; font-size: 1.1rem; color: var(--accent); }
+.sidebar .sep { height: 1px; background: var(--border); margin: .5rem 1rem; }
+.sidebar button {
+  background: none; border: none; color: var(--text); text-align: left;
+  padding: .5rem 1rem; cursor: pointer; font-size: .88rem; transition: background .15s;
+  display: flex; align-items: center; gap: .5rem;
+}
+.sidebar button:hover, .sidebar button.active { background: var(--border); }
+.sidebar button .icon { width: 18px; text-align: center; }
+
+.main { flex: 1; min-width: 0; padding: 1.5rem 2rem; overflow-y: auto; overflow-x: hidden; max-height: 100vh; }
+.page-title { margin-bottom: 1rem; font-size: 1.15rem; }
+
+/* ---------- Cards ---------- */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1rem;
+}
+.card h3 { margin-bottom: .75rem; font-size: 1rem; color: var(--accent); }
+
+/* ---------- Badges ---------- */
+.badge {
+  display: inline-block; padding: 2px 10px; border-radius: 12px;
+  font-size: .78rem; font-weight: 600;
+}
+.badge.ok  { background: var(--green);  color: #1e1e2e; }
+.badge.err { background: var(--red);    color: #1e1e2e; }
+.badge.warn{ background: var(--yellow); color: #1e1e2e; }
+
+/* ---------- Buttons ---------- */
+.btn {
+  background: var(--accent); color: #1e1e2e; border: none;
+  padding: .45rem .9rem; border-radius: var(--radius);
+  cursor: pointer; font-weight: 600; font-size: .83rem;
+  transition: opacity .15s; white-space: nowrap;
+}
+.btn:hover { opacity: .85; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn.danger    { background: var(--red); }
+.btn.secondary { background: var(--border); color: var(--text); }
+.btn.success   { background: var(--green); }
+.btn + .btn { margin-left: .4rem; }
+.btn-row { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .75rem; }
+
+/* ---------- Tables ---------- */
+table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+th, td { padding: .45rem .7rem; text-align: left; border-bottom: 1px solid var(--border); }
+th { color: var(--text-dim); font-weight: 600; }
+
+/* ---------- Output box ---------- */
+.output {
+  background: #11111b; border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .85rem; max-height: 300px; overflow: auto; font-family: monospace;
+  font-size: .8rem; white-space: pre-wrap; color: var(--text-dim); margin-top: .75rem;
+}
+
+/* ---------- Form fields ---------- */
+select, input[type=text], input[type=number], input[type=file], textarea {
+  background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  padding: .45rem .65rem; border-radius: var(--radius); font-size: .85rem; width: 100%;
+  font-family: inherit;
+}
+textarea { font-family: 'Cascadia Code', 'Fira Code', monospace; resize: vertical; min-height: 200px; }
+label { display: block; margin-bottom: .3rem; font-size: .8rem; color: var(--text-dim); }
+.field { margin-bottom: .75rem; }
+.field-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+.field-row .field { flex: 1; min-width: 200px; }
+
+/* ---------- Pages ---------- */
+.page { display: none; }
+.page.active { display: block; }
+
+/* ---------- Spinner ---------- */
+.spinner {
+  display: inline-block; width: 16px; height: 16px;
+  border: 2px solid var(--border); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin .6s linear infinite;
+  vertical-align: middle; margin-left: .5rem;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- Toast notifications ---------- */
+.toast-container {
+  position: fixed; top: 1rem; right: 1rem; z-index: 9999;
+  display: flex; flex-direction: column; gap: .5rem;
+}
+.toast {
+  padding: .6rem 1rem; border-radius: var(--radius);
+  font-size: .82rem; font-weight: 500; animation: fadeIn .2s;
+  max-width: 380px; word-wrap: break-word;
+}
+.toast.info    { background: var(--accent); color: #1e1e2e; }
+.toast.success { background: var(--green);  color: #1e1e2e; }
+.toast.error   { background: var(--red);    color: #1e1e2e; }
+@keyframes fadeIn { from { opacity:0; transform:translateY(-10px); } to { opacity:1; transform:none; } }
+
+/* ---------- Collapsible sections (details/summary) ---------- */
+details.section-collapse {
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+details.section-collapse + details.section-collapse {
+  margin-top: 2rem;
+}
+
+/* Align table columns across debian/ and dist/ tables */
+details.section-collapse table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+details.section-collapse table col.col-size { width: 6rem; }
+details.section-collapse table col.col-actions { width: 7.5rem; }
+details.section-collapse table th,
+details.section-collapse table td {
+  padding: .3rem .4rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+details.section-collapse table th.col-size,
+details.section-collapse table td:nth-child(2) {
+  text-align: right;
+}
+details.section-collapse table th.col-actions,
+details.section-collapse table td:nth-child(3) {
+  text-align: center;
+}
+details.section-collapse > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: .95rem;
+  padding: .5rem .75rem;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  list-style: none;
+  user-select: none;
+}
+details.section-collapse > summary::-webkit-details-marker { display: none; }
+details.section-collapse > summary::before {
+  content: '▸';
+  display: inline-block;
+  transition: transform .15s ease;
+  font-size: .8rem;
+  color: var(--text-dim);
+}
+details.section-collapse[open] > summary::before {
+  transform: rotate(90deg);
+}
+details.section-collapse > summary:hover {
+  background: rgba(137,180,250,.06);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+details.section-collapse > .section-collapse-body {
+  padding: .4rem .75rem .6rem;
+  border-top: 1px solid var(--border);
+}
+
+/* ---------- ELBE Workflow diagram ---------- */
+.workflow-diagram-wrap {
+  width: 100%;
+  overflow: hidden;
+}
+.workflow-diagram {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+/* ---------- Help tooltip (?) icon ---------- */
+.help-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  background: var(--border);
+  color: var(--text-dim);
+  font-size: .7rem;
+  font-weight: 700;
+  cursor: help;
+  position: relative;
+  vertical-align: middle;
+  margin-left: .35rem;
+  flex-shrink: 0;
+}
+.help-tip:hover { background: var(--accent); color: var(--bg); }
+.help-tip > .help-tip-text {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: calc(100% + .5rem);
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 22rem;
+  padding: .5rem .7rem;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: .78rem;
+  font-weight: 400;
+  line-height: 1.45;
+  white-space: normal;
+  box-shadow: 0 4px 12px rgba(0,0,0,.35);
+  z-index: 100;
+  text-align: left;
+}
+.help-tip:hover > .help-tip-text { display: block; }

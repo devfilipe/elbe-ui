@@ -1,0 +1,38 @@
+{
+  "elbe_bin": "elbe",
+  "vms_base_dir": "/workspace/.elbe/vms",
+  "initvm_dir": "/workspace/.elbe/vms/initvm",
+  "soap_host": "localhost",
+  "soap_port": "7587",
+  "workspace_dir": "/workspace",
+  "projects_dir": "/workspace/projects",
+  "upload_dir": "/workspace/uploads",
+  "output_dir": "/workspace",
+  "builds_dir": "",
+  "sources_dir": "/workspace/sources",
+  "packages_dir": "/workspace/packages",
+  "qemu_bin": "qemu-system-x86_64",
+  "qemu_memory": "1024",
+  "qemu_extra_args": "",
+  "max_concurrent_submits": 1,
+  "max_vms": 1,
+  "maintainer": {
+    "name": "",
+    "email": "elbe-demo@local",
+    "organization": "ELBE Demo Project"
+  },
+  "apt_repos": [
+    {
+      "label": "ELBE Demo Local",
+      "type": "deb",
+      "uri": "http://10.0.2.2:8080/repo/0",
+      "suite": "./",
+      "components": "",
+      "arch": "",
+      "signed_by": "",
+      "trusted": true,
+      "enabled": true,
+      "local_dir": "/workspace/tools/elbe-demo-apt-repository"
+    }
+  ]
+}
